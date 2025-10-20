@@ -1,5 +1,5 @@
-#ifndef SIMPLEARGS_H
-#define SIMPLEARGS_H
+#ifndef SEARGS_H
+#define SEARGS_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -20,6 +20,9 @@
 #define INT_VAL(int) ((arg_val_t){.int_val = (int)})
 #define FLOAT_VAL(float) ((arg_val_t){.float_val = (float)})
 #define FLAG_VAL ((arg_val_t){.flag_val = true})
+
+#define GET_DEF(valid_args, name)                                              \
+  get_arg_def(valid_args, name, sizeof(valid_args) / sizeof(valid_args[0]))
 
 // The type of the arg (int, float, string or flag)
 typedef enum {
@@ -180,6 +183,7 @@ inline static void free_args(args_t *args) {
   free(args);
 }
 
+// Returns a void pointer with the value of the arg, Returns null if not found
 inline static void *get_arg_val(args_t *args, const char *name) {
   for (int i = 0; i < args->num_args; i++) {
     if (strcmp(args->defs[i].name, name) == 0) {
@@ -196,6 +200,17 @@ inline static void *get_arg_val(args_t *args, const char *name) {
       }
     }
   }
+  return NULL; // not found
+}
+// Returns null if the arg was not found
+inline static const arg_def_t *get_arg_def(const arg_def_t valid_args[],
+                                           const char *name, int num_defs) {
+  for (int i = 0; i < num_defs; i++) {
+    if (strcmp(valid_args[i].name, name) == 0) {
+      return &valid_args[i];
+    }
+  }
   return NULL;
 }
+
 #endif

@@ -1,4 +1,4 @@
-#include "simpleargs.h"
+#include "seargs.h"
 
 int main(int argc, char *argv[]) {
   const arg_def_t valid_args[] = {

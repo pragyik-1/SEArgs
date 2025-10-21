@@ -21,7 +21,9 @@
 #define STRING_VAL(value) ((arg_val_t){.string_val = (value)})
 #define INT_VAL(value) ((arg_val_t){.int_val = (value)})
 #define FLOAT_VAL(fvalue) ((arg_val_t){.float_val = (value)})
-#define FLAG_VAL ((arg_val_t){.flag_val = true})
+// Usually presence of the flag determines its effects so it will always be
+// defaulted as false
+#define FLAG_VAL ((arg_val_t){.flag_val = false})
 
 #define GET_DEF(valid_args, name)                                              \
   get_arg_def(valid_args, name, sizeof(valid_args) / sizeof(valid_args[0]))

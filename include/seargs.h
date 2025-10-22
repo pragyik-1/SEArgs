@@ -7,11 +7,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define ARG_DEF(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, REQUIRED, DEFAULT)   \
+  (arg_def_t) {                                                                \
+    .name = LONG_NAME, .short_name = SHORT_NAME, .desc = DESCRIPTION,          \
+    .required = REQUIRED, .type = TYPE, .default_val = DEFAULT,                \
+  }
+
 #define REQUIRED_ARG(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION)                 \
-  create_arg_def(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, true, (arg_val_t){0})
+  ARG_DEF(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, true, (arg_val_t){0})
 
 #define OPTIONAL_ARG(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, DEFAULT)        \
-  create_arg_def(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, false, DEFAULT)
+  ARG_DEF(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, false, DEFAULT)
 
 #define PARSE_ARGS(argc, argv, defs)                                           \
   ((defs) ? parse_args(argc, argv, defs, sizeof(defs) / sizeof(defs[0])) : NULL)
@@ -20,7 +26,7 @@
 // pointers.
 #define STRING_VAL(value) ((arg_val_t){.string_val = (value)})
 #define INT_VAL(value) ((arg_val_t){.int_val = (value)})
-#define FLOAT_VAL(fvalue) ((arg_val_t){.float_val = (value)})
+#define FLOAT_VAL(value) ((arg_val_t){.float_val = (value)})
 // Usually presence of the flag determines its effects so it will always be
 // defaulted as false
 #define FLAG_VAL ((arg_val_t){.flag_val = false})
@@ -68,34 +74,23 @@ typedef struct {
   arg_state_t *states;
 } args_t;
 
-inline static arg_def_t create_arg_def(const char name[], char short_name,
-                                       arg_type_t type, const char desc[],
-                                       bool required, arg_val_t default_val) {
-
-  arg_def_t arg = {
-      .name = name,
-      .short_name = short_name,
-      .desc = desc,
-      .required = required,
-      .type = type,
-      .default_val = default_val,
-  };
-  return arg;
-}
-
 // parses the provided arguments, checking validity and returning a pointer
 // to the parsed args. returns NULL on failure
-inline static args_t *parse_args(int argc, char *argv[],
+inline static args_t *parse_args(int argc, const char *argv[],
                                  const arg_def_t *args_defs, int num_args) {
-  if (!args_defs) {
+// macro for exiting function incase of error
+#define SAFE_EXIT                                                              \
+  free(states);                                                                \
+  free(args);                                                                  \
+  return NULL;
+
+  if (!args_defs || num_args <= 0) {
     return NULL;
   }
   args_t *args = (args_t *)malloc(sizeof(args_t));
   arg_state_t *states = (arg_state_t *)calloc(num_args, sizeof(arg_state_t));
-  if (args == NULL) {
-    free(states);
-    free(args);
-    return NULL;
+  if (args == NULL || states == NULL) {
+    SAFE_EXIT;
   }
   args->defs = args_defs;
   args->states = states;
@@ -103,7 +98,7 @@ inline static args_t *parse_args(int argc, char *argv[],
 
   // main parse loop
   for (int i = 1; i < argc; i++) {
-    char *arg = argv[i];
+    const char *arg = argv[i];
     if (arg[0] != '-') {
       continue;
     }
@@ -126,11 +121,16 @@ inline static args_t *parse_args(int argc, char *argv[],
       }
     }
     if (matched_def == NULL) {
-      fprintf(stderr, "Unknown option: %s has been ignored\n", arg);
-      continue;
+      fprintf(stderr, "Unknown option: %s\n", arg);
+      SAFE_EXIT;
     }
     int index = matched_def - args->defs;
     arg_state_t *state = &args->states[index];
+    if (state->found) {
+      fprintf(stderr, "Error: Duplicate argument found for --%s\n",
+              matched_def->name);
+      SAFE_EXIT;
+    }
     state->found = true;
 
     switch (matched_def->type) {
@@ -140,29 +140,31 @@ inline static args_t *parse_args(int argc, char *argv[],
     case ARG_INT:
       if (i + 1 >= argc) {
         fprintf(stderr, "missing value for %s\n", arg);
-        free(states);
-        free(args);
-        return NULL;
+        SAFE_EXIT;
       }
       state->value.int_val = atoi(argv[++i]);
       break;
     case ARG_FLOAT:
       if (i + 1 >= argc) {
         fprintf(stderr, "missing value for %s\n", arg);
-        free(states);
-        free(args);
-        return NULL;
+        SAFE_EXIT;
       }
       state->value.float_val = atof(argv[++i]);
       break;
     case ARG_STRING:
       if (i + 1 >= argc) {
         fprintf(stderr, "missing value for %s\n", arg);
-        free(states);
-        free(args);
-        return NULL;
+        SAFE_EXIT;
       }
-      state->value.string_val = argv[++i];
+      state->value.string_val = strdup(argv[++i]);
+      if (state->value.string_val == NULL) {
+        for (int j = 0; j < index; j++) {
+          if (args->states[j].value.string_val) {
+            free(args->states[j].value.string_val);
+          }
+        }
+        SAFE_EXIT;
+      }
       break;
     }
   }
@@ -175,9 +177,7 @@ inline static args_t *parse_args(int argc, char *argv[],
                 args->defs[i].name,
                 args->defs[i].short_name ? (char[]){args->defs[i].short_name, 0}
                                          : "none");
-        free(states);
-        free(args);
-        return NULL;
+        SAFE_EXIT;
         // if not found but is optional then default value is used
       } else {
         states[i].value = args->defs[i].default_val;
@@ -185,6 +185,7 @@ inline static args_t *parse_args(int argc, char *argv[],
     }
   }
   return args;
+#undef SAFE_EXIT
 }
 
 // Free all arguments after use.
@@ -193,14 +194,25 @@ inline static void free_args(args_t *args) {
     return;
   }
   if (args->states) {
+    // free the strings created from strdup()
+    for (int i = 0; i < args->num_args; i++) {
+      if (args->defs[i].type == ARG_STRING && args->states[i].found &&
+          args->states[i].value.string_val) {
+        free(args->states[i].value.string_val);
+      }
+    }
     free(args->states);
   }
   free(args);
+  args = NULL;
 }
 
 // Returns a void pointer with the value of the arg, strings are returned as is
 // and not a pointer, Returns null if not found
 inline static void *get_arg_val(args_t *args, const char *name) {
+  if (args == NULL) {
+    return NULL;
+  }
   for (int i = 0; i < args->num_args; i++) {
     if (strcmp(args->defs[i].name, name) == 0) {
       arg_state_t *state = &args->states[i];
@@ -221,6 +233,9 @@ inline static void *get_arg_val(args_t *args, const char *name) {
 // Returns null if the arg was not found
 inline static const arg_def_t *get_arg_def(const arg_def_t valid_args[],
                                            const char *name, int num_defs) {
+  if (valid_args == NULL) {
+    return NULL;
+  }
   for (int i = 0; i < num_defs; i++) {
     if (strcmp(valid_args[i].name, name) == 0) {
       return &valid_args[i];

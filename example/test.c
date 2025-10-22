@@ -1,7 +1,7 @@
 #include "../include/seargs.h"
 #include <stdio.h>
 
-int main(int argc, char *argv[]) {
+int main(int argc, const char *argv[]) {
   const arg_def_t valid_args[] = {
       REQUIRED_ARG("input", 'i', ARG_STRING, "Input file path."),
       OPTIONAL_ARG("output", 'o', ARG_STRING, "Output directory.",

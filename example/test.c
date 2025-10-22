@@ -22,18 +22,19 @@ int main(int argc, const char *argv[]) {
   const arg_def_t *arg_output_def =
       get_arg_def(valid_args, "output", valid_args_length);
 
-  char *arg_input_val = get_arg_val(args, arg_input_def->name);
-  int *arg_somecount_val = get_arg_val(args, arg_somecount_def->name);
-  bool *arg_someflag_val = get_arg_val(args, arg_someflag_def->name);
+  // Some macros are provided which allows explicit value getting.
+  char *arg_input_val = GET_STRING_ARG(args, arg_input_def->name);
+  int arg_somecount_val = GET_INT_ARG(args, arg_somecount_def->name);
+  bool *arg_someflag_val = (bool *)get_arg_val(args, arg_someflag_def->name);
   char *arg_output_val = get_arg_val(args, arg_output_def->name);
 
   printf("Input (desc): %s, value: %s\n", arg_input_def->desc, arg_input_val);
   printf("Somecount (desc): %s, value: %d\n", arg_somecount_def->desc,
-         *arg_somecount_val);
+         arg_somecount_val);
   printf("someflag(desc): %s, value: %d\n", arg_someflag_def->desc,
          *arg_someflag_val);
   printf("Output (desc): %s, value: %s\n", arg_output_def->desc,
          arg_output_val);
-  free_args(args);
+  free_args(&args);
   return EXIT_SUCCESS;
 }

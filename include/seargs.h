@@ -19,6 +19,8 @@
 #define OPTIONAL_ARG(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, DEFAULT)        \
   ARG_DEF(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, false, DEFAULT)
 
+// NOTE: Only use this macro if defs is a static array in scope, doesnt work
+// with pointers if so use parse_args()
 #define PARSE_ARGS(argc, argv, defs)                                           \
   ((defs) ? parse_args(argc, argv, defs, sizeof(defs) / sizeof(defs[0])) : NULL)
 
@@ -31,8 +33,16 @@
 // defaulted as false
 #define FLAG_VAL ((arg_val_t){.flag_val = false})
 
+// NOTE: Only use this macro if defs is a static array in scope, doesnt work
+// with pointers if so use get_arg_def()
 #define GET_DEF(valid_args, name)                                              \
   get_arg_def(valid_args, name, sizeof(valid_args) / sizeof(valid_args[0]))
+
+// Macros to explicitly get arg values.
+#define GET_INT_ARG(args, name) (*(int *)get_arg_val(args, name))
+#define GET_FLOAT_ARG(args, name) (*(float *)get_arg_val(args, name))
+#define GET_STRING_ARG(args, name) ((char *)get_arg_val(args, name))
+#define GET_FLAG_ARG(args, name) (*(bool *)get_arg_val(args, name))
 
 // The type of the arg (int, float, string or flag)
 typedef enum {
@@ -65,6 +75,7 @@ typedef struct {
 typedef struct {
   arg_val_t value;
   bool found;
+  bool string_allocated;
 } arg_state_t;
 
 // list of args with their definitions and states.
@@ -74,15 +85,41 @@ typedef struct {
   arg_state_t *states;
 } args_t;
 
+// Internal helper to free the strings allocated by strdup() in parse_args()
+// properly. has no use standalone.
+static inline void _seargs_free_string_states(const arg_def_t *defs,
+                                              arg_state_t *states, int limit) {
+  if (!states || !defs)
+    return;
+  for (int i = 0; i < limit; i++) {
+    if (defs[i].type == ARG_STRING && states[i].string_allocated) {
+      free(states[i].value.string_val);
+    }
+  }
+}
+
+// Internal helper to
+static inline void _seargs_cleanup(args_t *args) {
+  if (args == NULL) {
+    return;
+  }
+  if (args->states) {
+    _seargs_free_string_states(args->defs, args->states, args->num_args);
+    free(args->states);
+  }
+  free(args);
+}
+
 // parses the provided arguments, checking validity and returning a pointer
 // to the parsed args. returns NULL on failure
 inline static args_t *parse_args(int argc, const char *argv[],
                                  const arg_def_t *args_defs, int num_args) {
 // macro for exiting function incase of error
 #define SAFE_EXIT                                                              \
-  free(states);                                                                \
-  free(args);                                                                  \
-  return NULL;
+  do {                                                                         \
+    _seargs_cleanup(args);                                                     \
+    return NULL;                                                               \
+  } while (0)
 
   if (!args_defs || num_args <= 0) {
     return NULL;
@@ -120,6 +157,8 @@ inline static args_t *parse_args(int argc, const char *argv[],
         }
       }
     }
+    if (strcmp(arg, "--") == 0)
+      break;
     if (matched_def == NULL) {
       fprintf(stderr, "Unknown option: %s\n", arg);
       SAFE_EXIT;
@@ -158,13 +197,11 @@ inline static args_t *parse_args(int argc, const char *argv[],
       }
       state->value.string_val = strdup(argv[++i]);
       if (state->value.string_val == NULL) {
-        for (int j = 0; j < index; j++) {
-          if (args->states[j].value.string_val) {
-            free(args->states[j].value.string_val);
-          }
-        }
         SAFE_EXIT;
       }
+      state->string_allocated = true;
+      break;
+    default:
       break;
     }
   }
@@ -180,7 +217,17 @@ inline static args_t *parse_args(int argc, const char *argv[],
         SAFE_EXIT;
         // if not found but is optional then default value is used
       } else {
-        states[i].value = args->defs[i].default_val;
+        if (args->defs[i].type == ARG_STRING) {
+          states[i].value.string_val =
+              strdup(args->defs[i].default_val.string_val);
+          if (states[i].value.string_val == NULL) {
+            SAFE_EXIT;
+          }
+          states[i].string_allocated = true;
+        } else {
+          states[i].value = args->defs[i].default_val;
+          states[i].string_allocated = false;
+        }
       }
     }
   }
@@ -189,22 +236,17 @@ inline static args_t *parse_args(int argc, const char *argv[],
 }
 
 // Free all arguments after use.
-inline static void free_args(args_t *args) {
+inline static void free_args(args_t **p_args) {
+  args_t *args = *p_args;
   if (args == NULL) {
     return;
   }
   if (args->states) {
-    // free the strings created from strdup()
-    for (int i = 0; i < args->num_args; i++) {
-      if (args->defs[i].type == ARG_STRING && args->states[i].found &&
-          args->states[i].value.string_val) {
-        free(args->states[i].value.string_val);
-      }
-    }
+    _seargs_free_string_states(args->defs, args->states, args->num_args);
     free(args->states);
   }
   free(args);
-  args = NULL;
+  *p_args = NULL;
 }
 
 // Returns a void pointer with the value of the arg, strings are returned as is

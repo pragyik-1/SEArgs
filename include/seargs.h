@@ -99,7 +99,6 @@ static inline void _seargs_cleanup(args_t *args) {
   }
   free(args);
 }
-
 // parses the provided arguments, checking validity and returning a pointer
 // to the parsed args. returns NULL on failure
 inline static args_t *parse_args(int argc, const char *argv[],
@@ -113,6 +112,27 @@ inline static args_t *parse_args(int argc, const char *argv[],
 
   if (!args_defs || num_args <= 0) {
     return NULL;
+  }
+  // Loop to check for null names and prevent duplicate named or short_named
+  // args.
+  for (int i = 0; i < num_args; i++) {
+    if (args_defs[i].name == NULL) {
+      fprintf(stderr, "The name of an argument cannot be null\n");
+      return NULL;
+    }
+    for (int j = i + 1; j < num_args; j++) {
+      if (strcmp(args_defs[i].name, args_defs[j].name) == 0) {
+        fprintf(stderr, "Multiple arguments found with the same name: %s\n",
+                args_defs[i].name);
+        return NULL;
+      }
+      if (args_defs[i].short_name == args_defs[j].short_name) {
+        fprintf(stderr,
+                "Multiple arguments found with the same short name: %c\n",
+                args_defs[i].short_name);
+        return NULL;
+      }
+    }
   }
   args_t *args = (args_t *)malloc(sizeof(args_t));
   arg_state_t *states = (arg_state_t *)calloc(num_args, sizeof(arg_state_t));
@@ -151,7 +171,7 @@ inline static args_t *parse_args(int argc, const char *argv[],
       break;
     if (matched_def == NULL) {
       fprintf(stderr, "Unknown option: %s\n", arg);
-      SAFE_EXIT; 
+      SAFE_EXIT;
     }
     int index = matched_def - args->defs;
     arg_state_t *state = &args->states[index];
@@ -209,7 +229,9 @@ inline static args_t *parse_args(int argc, const char *argv[],
       } else {
         if (args->defs[i].type == ARG_STRING) {
           if (args->defs[i].default_val.string_val == NULL) {
-            fprintf(stderr, "Please make sure that a default valid not null is provided for argument: --%s\n",
+            fprintf(stderr,
+                    "Please make sure that a default valid not null is "
+                    "provided for argument: --%s\n",
                     args->defs[i].name);
             SAFE_EXIT;
           }

@@ -12,10 +12,10 @@
 /* Utility functions. */
 /* ------------------ */
 
-static char* str_dup(const char* string) {
-    size_t len = strlen(string) + 1;
-    char *copy = malloc(len);
-    return copy ? memcpy(copy, string, len) : NULL;
+static char *str_dup(const char *string) {
+  size_t len = strlen(string) + 1;
+  char *copy = malloc(len);
+  return copy ? memcpy(copy, string, len) : NULL;
 }
 
 // tries to convert a str into an int, returns false on failure
@@ -71,10 +71,34 @@ static inline void _cleanup_args(args_t *args) {
   }
   free(args);
 }
+
+static bool validate_arg_defs(const arg_def_t *defs, int num_args) {
+  if (!defs || num_args <= 0)
+    return false;
+
+  for (int i = 0; i < num_args; i++) {
+    if (!defs[i].name) {
+      fprintf(stderr, "Argument name cannot be null\n");
+      return false;
+    }
+    for (int j = i + 1; j < num_args; j++) {
+      if (strcmp(defs[i].name, defs[j].name) == 0) {
+        fprintf(stderr, "Duplicate argument name: %s\n", defs[i].name);
+        return false;
+      }
+      if (defs[i].short_name == defs[j].short_name) {
+        fprintf(stderr, "Duplicate short name: %c\n", defs[i].short_name);
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 // parses the provided arguments, checking validity and returning a pointer
 // to the parsed args. returns NULL on failure
-args_t *parse_args(int argc, const char *argv[],
-                          const arg_def_t *args_defs, int num_args) {
+args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
+                   int num_args) {
 // macro for exiting function incase of error
 #define SAFE_EXIT                                                              \
   do {                                                                         \
@@ -82,29 +106,8 @@ args_t *parse_args(int argc, const char *argv[],
     return NULL;                                                               \
   } while (0)
 
-  if (!args_defs || num_args <= 0) {
+  if (!validate_arg_defs(args_defs, num_args)) {
     return NULL;
-  }
-  // Loop to check for null names and prevent duplicate named or short_named
-  // args.
-  for (int i = 0; i < num_args; i++) {
-    if (args_defs[i].name == NULL) {
-      fprintf(stderr, "The name of an argument cannot be null\n");
-      return NULL;
-    }
-    for (int j = i + 1; j < num_args; j++) {
-      if (strcmp(args_defs[i].name, args_defs[j].name) == 0) {
-        fprintf(stderr, "Multiple arguments found with the same name: %s\n",
-                args_defs[i].name);
-        return NULL;
-      }
-      if (args_defs[i].short_name == args_defs[j].short_name) {
-        fprintf(stderr,
-                "Multiple arguments found with the same short name: %c\n",
-                args_defs[i].short_name);
-        return NULL;
-      }
-    }
   }
 
   args_t *args = (args_t *)malloc(sizeof(args_t));
@@ -194,35 +197,32 @@ args_t *parse_args(int argc, const char *argv[],
   }
   // loop to check argument requirements
   for (int i = 0; i < num_args; i++) {
-    if (!states[i].found) {
-      // if required but not found then exit program.
-      if (args->defs[i].required) {
-        fprintf(stderr, "Missing required argument: --%s (%s)\n",
-                args->defs[i].name,
-                args->defs[i].short_name ? (char[]){args->defs[i].short_name, 0}
-                                         : "none");
+    arg_state_t *state = &args->states[i];
+    const arg_def_t *def = &args->defs[i];
+    if (state->found) {
+      continue;
+    }
+
+    if (def->required) {
+      fprintf(stderr, "Missing required argument: --%s (%c)\n", def->name,
+              def->short_name);
+      SAFE_EXIT;
+    }
+
+    if (def->type == ARG_STRING) {
+      if (def->default_val.string_val == NULL) {
+        fprintf(stderr, "Missing default for optional string arg: --%s\n",
+                def->name);
         SAFE_EXIT;
-        // if not found but is optional then default value is used
-      } else {
-        if (args->defs[i].type == ARG_STRING) {
-          if (args->defs[i].default_val.string_val == NULL) {
-            fprintf(stderr,
-                    "Please make sure that a default valid not null is "
-                    "provided for argument: --%s\n",
-                    args->defs[i].name);
-            SAFE_EXIT;
-          }
-          states[i].value.string_val =
-              str_dup(args->defs[i].default_val.string_val);
-          if (states[i].value.string_val == NULL) {
-            SAFE_EXIT;
-          }
-          states[i].string_allocated = true;
-        } else {
-          states[i].value = args->defs[i].default_val;
-          states[i].string_allocated = false;
-        }
       }
+      state->value.string_val = str_dup(def->default_val.string_val);
+      if (state->value.string_val == NULL) {
+        SAFE_EXIT;
+      }
+      state->string_allocated = true;
+    } else {
+      state->value = def->default_val;
+      state->string_allocated = false;
     }
   }
   return args;
@@ -230,16 +230,11 @@ args_t *parse_args(int argc, const char *argv[],
 }
 
 // Free all arguments after use.
+
 void free_args(args_t **p_args) {
-  args_t *args = *p_args;
-  if (args == NULL) {
+  if (!p_args || !*p_args)
     return;
-  }
-  if (args->states) {
-    _cleanup_string_states(args->defs, args->states, args->num_args);
-    free(args->states);
-  }
-  free(args);
+  _cleanup_args(*p_args);
   *p_args = NULL;
 }
 
@@ -267,8 +262,8 @@ void *get_arg_val(args_t *args, const char *name) {
   return NULL; // not found
 }
 // Returns null if the arg was not found
-const arg_def_t *get_arg_def(const arg_def_t valid_args[],
-                                    const char *name, int num_defs) {
+const arg_def_t *get_arg_def(const arg_def_t valid_args[], const char *name,
+                             int num_defs) {
   if (valid_args == NULL) {
     return NULL;
   }

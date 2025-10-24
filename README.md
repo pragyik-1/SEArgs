@@ -19,11 +19,10 @@ Such as if you wanted an int as the default you would do INT_VAL(20). the type o
 OPTIONAL_ARG(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, DEFAULT) 
 ```
 Here is a brief description of all of the parameters
- - The macros accept parameters to define their behaviour.
- - LONG_NAME: It is the actual name of the agrument such as "input"
- - SHORT_NAME: You can optionally provide a short name such as "i" for arguments, you would use 0 to disable this.
- - TYPE: It is the type of value you expect this arg to contain. eg: ./prog --input "./file", here the type of the arg is a string (char *)
- - DESCRIPTION: An optional description you can provide for your arg, leave as empty string to disable this.
+ - `LONG_NAME:` It is the actual name of the agrument such as "input"
+ - `SHORT_NAME`: You can optionally provide a short name such as "i" for arguments, you would use 0 to disable this.
+ - `TYPE`: It is the type of value you expect this arg to contain. eg: ./prog --input "./file", here the type of the arg is a string (char *)
+ - `DESCRIPTION`: An optional description you can provide for your arg, leave as empty string to disable this.
  
  This is how you will usually be defining the arguments of your program.
 ```c
@@ -56,10 +55,9 @@ int main(int argc, char *argv[]) {
 
 You can access the values of the arguments using the following
 ```c
-char * input_arg_val = get_arg_val(args, "input");
-char * output_arg_val = get_arg_val(args, "output");
+char **input_arg_val = get_arg_val(args, "input");
+char **output_arg_val = get_arg_val(args, "output");
 // Note: get_arg_val returns a void pointer to the specified type, you may have to cast it.
-//       strings are not passed as pointers as they are already pointers themselves.
 ```
 
 Using these you would be able to do something like
@@ -73,8 +71,8 @@ int main(int argc, char *argv[]) {
         OPTIONAL_ARG("verbose", 'v', ARG_FLAG, "Enable verbose output.", FLAG_VAL)
     }
     args_t *args = PARSE_ARGS(argc, argv, valid_args);
-    char * input_arg_val = get_arg_val(args, "input");
-    char * output_arg_val = get_arg_val(args, "output");
+    char **input_arg_val = get_arg_val(args, "input");
+    char **output_arg_val = get_arg_val(args, "output");
 }
 ``` 
 

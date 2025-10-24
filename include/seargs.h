@@ -33,17 +33,6 @@
 // defaulted as false
 #define FLAG_VAL ((arg_val_t){.flag_val = false})
 
-// NOTE: Only use this macro if defs is a static array in scope, doesnt work
-// with pointers if so use get_arg_def()
-#define GET_DEF(valid_args, name)                                              \
-  get_arg_def(valid_args, name, sizeof(valid_args) / sizeof(valid_args[0]))
-
-// Macros to explicitly get arg values.
-#define GET_INT_ARG(args, name) (*(int *)get_arg_val(args, name))
-#define GET_FLOAT_ARG(args, name) (*(float *)get_arg_val(args, name))
-#define GET_STRING_ARG(args, name) ((char *)get_arg_val(args, name))
-#define GET_FLAG_ARG(args, name) (*(bool *)get_arg_val(args, name))
-
 // The type of the arg (int, float, string or flag)
 typedef enum {
   ARG_FLAG,
@@ -61,14 +50,14 @@ typedef union {
   char *string_val;
 } arg_val_t;
 
-// Representation of and arg, provides necessary metadata
+// Representation of an arg, provides necessary metadata
 typedef struct {
   const char *name;
   const char short_name;
   const char *desc;
-  bool required;
-  arg_type_t type;
-  arg_val_t default_val;
+  const bool required;
+  const arg_type_t type;
+  const arg_val_t default_val;
 } arg_def_t;
 
 // State of the argument, contains its value and whether it is found or not.
@@ -98,7 +87,8 @@ static inline void _seargs_free_string_states(const arg_def_t *defs,
   }
 }
 
-// Internal helper to
+// Internal helper to do a full cleanup of memory even if it wasnt fully
+// initialized yet.
 static inline void _seargs_cleanup(args_t *args) {
   if (args == NULL) {
     return;
@@ -161,7 +151,7 @@ inline static args_t *parse_args(int argc, const char *argv[],
       break;
     if (matched_def == NULL) {
       fprintf(stderr, "Unknown option: %s\n", arg);
-      SAFE_EXIT;
+      SAFE_EXIT; 
     }
     int index = matched_def - args->defs;
     arg_state_t *state = &args->states[index];
@@ -218,6 +208,11 @@ inline static args_t *parse_args(int argc, const char *argv[],
         // if not found but is optional then default value is used
       } else {
         if (args->defs[i].type == ARG_STRING) {
+          if (args->defs[i].default_val.string_val == NULL) {
+            fprintf(stderr, "Please make sure that a default valid not null is provided for argument: --%s\n",
+                    args->defs[i].name);
+            SAFE_EXIT;
+          }
           states[i].value.string_val =
               strdup(args->defs[i].default_val.string_val);
           if (states[i].value.string_val == NULL) {
@@ -266,7 +261,7 @@ inline static void *get_arg_val(args_t *args, const char *name) {
       case ARG_FLOAT:
         return &state->value.float_val;
       case ARG_STRING:
-        return state->value.string_val;
+        return &state->value.string_val;
       }
     }
   }

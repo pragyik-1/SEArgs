@@ -1,6 +1,8 @@
 #ifndef SEARGS_H
 #define SEARGS_H
 
+#include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -28,26 +30,21 @@
 // pointers.
 #define STRING_VAL(value) ((arg_val_t){.string_val = (value)})
 #define INT_VAL(value) ((arg_val_t){.int_val = (value)})
-#define FLOAT_VAL(value) ((arg_val_t){.float_val = (value)})
 // Usually presence of the flag determines its effects so it will always be
 // defaulted as false
 #define FLAG_VAL ((arg_val_t){.flag_val = false})
+#define DOUBLE_VAL(value) ((arg_val_t){.double_val = (value)})
 
 // The type of the arg (int, float, string or flag)
-typedef enum {
-  ARG_FLAG,
-  ARG_INT,
-  ARG_FLOAT,
-  ARG_STRING,
-} arg_type_t;
+typedef enum { ARG_FLAG, ARG_INT, ARG_STRING, ARG_DOUBLE } arg_type_t;
 
 // Value provided to the specific argument (for flags if the argument exists its
 // counted as true or 1)
 typedef union {
   bool flag_val;
   int int_val;
-  float float_val;
   char *string_val;
+  double double_val;
 } arg_val_t;
 
 // Representation of an arg, provides necessary metadata
@@ -74,10 +71,42 @@ typedef struct {
   arg_state_t *states;
 } args_t;
 
+/* ------------------ */
+/* Utility functions. */
+/* ------------------ */
+
+// tries to convert a str into an int, returns false on failure
+static inline bool str_to_int(const char *str, int *out) {
+  char *endptr;
+  long result = strtol(str, &endptr, 0);
+  if (*endptr != '\0') {
+    return false;
+  }
+  if (errno == ERANGE || result < INT_MIN || result > INT_MAX) {
+    return false;
+  }
+  *out = (int)result;
+  return true;
+}
+
+// tries to convert a str into a double, returns false on failure
+static inline bool str_to_double(const char *str, double *out) {
+  char *endptr;
+  double result = strtod(str, &endptr);
+  if (*endptr != '\0') {
+    return false;
+  }
+  if (errno == ERANGE) {
+    return false;
+  }
+  *out = result;
+  return true;
+}
+
 // Internal helper to free the strings allocated by strdup() in parse_args()
 // properly. has no use standalone.
-static inline void _seargs_free_string_states(const arg_def_t *defs,
-                                              arg_state_t *states, int limit) {
+static inline void _cleanup_string_states(const arg_def_t *defs,
+                                          arg_state_t *states, int limit) {
   if (!states || !defs)
     return;
   for (int i = 0; i < limit; i++) {
@@ -89,24 +118,24 @@ static inline void _seargs_free_string_states(const arg_def_t *defs,
 
 // Internal helper to do a full cleanup of memory even if it wasnt fully
 // initialized yet.
-static inline void _seargs_cleanup(args_t *args) {
+static inline void _cleanup_args(args_t *args) {
   if (args == NULL) {
     return;
   }
   if (args->states) {
-    _seargs_free_string_states(args->defs, args->states, args->num_args);
+    _cleanup_string_states(args->defs, args->states, args->num_args);
     free(args->states);
   }
   free(args);
 }
 // parses the provided arguments, checking validity and returning a pointer
 // to the parsed args. returns NULL on failure
-inline static args_t *parse_args(int argc, const char *argv[],
-                                 const arg_def_t *args_defs, int num_args) {
+inline args_t *parse_args(int argc, const char *argv[],
+                          const arg_def_t *args_defs, int num_args) {
 // macro for exiting function incase of error
 #define SAFE_EXIT                                                              \
   do {                                                                         \
-    _seargs_cleanup(args);                                                     \
+    _cleanup_args(args);                                                       \
     return NULL;                                                               \
   } while (0)
 
@@ -191,14 +220,18 @@ inline static args_t *parse_args(int argc, const char *argv[],
         fprintf(stderr, "missing value for %s\n", arg);
         SAFE_EXIT;
       }
-      state->value.int_val = atoi(argv[++i]);
+      if (!str_to_int(argv[++i], &state->value.int_val)) {
+        SAFE_EXIT;
+      }
       break;
-    case ARG_FLOAT:
+    case ARG_DOUBLE:
       if (i + 1 >= argc) {
         fprintf(stderr, "missing value for %s\n", arg);
         SAFE_EXIT;
       }
-      state->value.float_val = atof(argv[++i]);
+      if (!str_to_double(argv[++i], &state->value.double_val)) {
+        SAFE_EXIT;
+      }
       break;
     case ARG_STRING:
       if (i + 1 >= argc) {
@@ -253,13 +286,13 @@ inline static args_t *parse_args(int argc, const char *argv[],
 }
 
 // Free all arguments after use.
-inline static void free_args(args_t **p_args) {
+inline void free_args(args_t **p_args) {
   args_t *args = *p_args;
   if (args == NULL) {
     return;
   }
   if (args->states) {
-    _seargs_free_string_states(args->defs, args->states, args->num_args);
+    _cleanup_string_states(args->defs, args->states, args->num_args);
     free(args->states);
   }
   free(args);
@@ -268,7 +301,7 @@ inline static void free_args(args_t **p_args) {
 
 // Returns a void pointer with the value of the arg, strings are returned as is
 // and not a pointer, Returns null if not found
-inline static void *get_arg_val(args_t *args, const char *name) {
+inline void *get_arg_val(args_t *args, const char *name) {
   if (args == NULL) {
     return NULL;
   }
@@ -280,8 +313,8 @@ inline static void *get_arg_val(args_t *args, const char *name) {
         return &state->value.flag_val;
       case ARG_INT:
         return &state->value.int_val;
-      case ARG_FLOAT:
-        return &state->value.float_val;
+      case ARG_DOUBLE:
+        return &state->value.double_val;
       case ARG_STRING:
         return &state->value.string_val;
       }
@@ -290,8 +323,8 @@ inline static void *get_arg_val(args_t *args, const char *name) {
   return NULL; // not found
 }
 // Returns null if the arg was not found
-inline static const arg_def_t *get_arg_def(const arg_def_t valid_args[],
-                                           const char *name, int num_defs) {
+inline const arg_def_t *get_arg_def(const arg_def_t valid_args[],
+                                    const char *name, int num_defs) {
   if (valid_args == NULL) {
     return NULL;
   }

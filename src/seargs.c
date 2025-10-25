@@ -100,9 +100,10 @@ static void print_help(const arg_def_t *defs, int num_args) {
     return;
   printf("Usage:\n");
   for (int i = 0; i < num_args; i++) {
-    char *short_name = malloc(4);
+    char *short_name = malloc(sizeof(char) * 4);
     sprintf(short_name, "(%c)", defs[i].short_name);
     printf("%s%s: %s\n", defs[i].name, short_name, defs[i].desc);
+    free(short_name);
   }
 }
 

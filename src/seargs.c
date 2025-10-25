@@ -95,6 +95,17 @@ static bool validate_arg_defs(const arg_def_t *defs, int num_args) {
   return true;
 }
 
+static void print_help(const arg_def_t *defs, int num_args) {
+  if (!defs || num_args <= 0)
+    return;
+  printf("Usage:\n");
+  for (int i = 0; i < num_args; i++) {
+    char *short_name = malloc(4);
+    sprintf(short_name, "(%c)", defs[i].short_name);
+    printf("%s%s: %s\n", defs[i].name, short_name, defs[i].desc);
+  }
+}
+
 // parses the provided arguments, checking validity and returning a pointer
 // to the parsed args. returns NULL on failure
 args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
@@ -107,6 +118,11 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
   } while (0)
 
   if (!validate_arg_defs(args_defs, num_args)) {
+    return NULL;
+  }
+
+  if (argc <= 1) {
+    print_help(args_defs, num_args);
     return NULL;
   }
 

@@ -3,10 +3,18 @@
  This file provides some useful helper macros
  To hoperfully make the developer experience a bit better
 */
-#define GET_INT_ARG(args, name) (*(int *)get_arg_val(args, name))
-#define GET_FLOAT_ARG(args, name) (*(float *)get_arg_val(args, name))
-#define GET_STRING_ARG(args, name) (*(char **)get_arg_val(args, name))
-#define GET_FLAG_ARG(args, name) (*(bool *)get_arg_val(args, name))
+
+#define GET_ARG(args, name, type, default_val)                                 \
+  ({                                                                           \
+    void *__v = get_arg_val(args, name);                                       \
+    __v ? *(type *)__v                                                         \
+        : (fprintf(stderr, "Missing %s arg: %s\n", #type, name), default_val); \
+  })
+
+#define GET_INT_ARG(args, name) GET_ARG(args, name, int, 0)
+#define GET_DOUBLE_ARG(args, name) GET_ARG(args, name, double, 0.0)
+#define GET_STRING_ARG(args, name) GET_ARG(args, name, char *, NULL)
+#define GET_FLAG_ARG(args, name) GET_ARG(args, name, bool, false)
 
 #define REQUIRED_INT_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION)                   \
   ARG_DEF(LONG_NAME, SHORT_NAME, ARG_INT, DESCRIPTION, true, (arg_val_t){0})
@@ -19,9 +27,9 @@
 // INT_VAL() on the user side as thats already handled
 #define OPTIONAL_INT_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION, DEFAULT)          \
   ARG_DEF(LONG_NAME, SHORT_NAME, ARG_INT, DESCRIPTION, false, INT_VAL(DEFAULT))
-#define OPTIONAL_FLOAT_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION, DEFAULT)        \
+#define OPTIONAL_DOUBLE_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION, DEFAULT)       \
   ARG_DEF(LONG_NAME, SHORT_NAME, ARG_DOUBLE, DESCRIPTION, false,               \
-          FLOAT_VAL(DEFAULT))
+          DOUBLE_VAL(DEFAULT))
 #define OPTIONAL_STRING_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION, DEFAULT)       \
   ARG_DEF(LONG_NAME, SHORT_NAME, ARG_STRING, DESCRIPTION, false,               \
           STRING_VAL(DEFAULT))
@@ -30,4 +38,8 @@
 // NOTE: Only use this macro if defs is a static array in scope, doesnt work
 // with pointers if so use get_arg_def()
 #define GET_DEF(valid_args, name)                                              \
-  get_arg_def(valid_args, name, sizeof(valid_args) / sizeof(valid_args[0]))
+  ({                                                                           \
+    const arg_def_t *__def = get_arg_def(                                      \
+        valid_args, name, sizeof(valid_args) / sizeof(valid_args[0]));         \
+    __def ? *__def : (arg_def_t){0};                                           \
+  })

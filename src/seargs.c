@@ -67,12 +67,11 @@ static inline void _cleanup_args(args_t *args) {
   }
   if (args->states) {
     _cleanup_string_states(args->defs, args->states, args->num_args);
-    free(args->states);
   }
   free(args);
 }
 
-static bool validate_arg_defs(const arg_def_t *defs, int num_args) {
+bool validate_arg_defs(const arg_def_t *defs, int num_args) {
   if (!defs || num_args <= 0)
     return false;
 
@@ -95,15 +94,14 @@ static bool validate_arg_defs(const arg_def_t *defs, int num_args) {
   return true;
 }
 
-static void print_help(const arg_def_t *defs, int num_args) {
+void print_help(const arg_def_t *defs, int num_args) {
   if (!defs || num_args <= 0)
     return;
   printf("Usage:\n");
   for (int i = 0; i < num_args; i++) {
-    char *short_name = malloc(sizeof(char) * 4);
-    sprintf(short_name, "(%c)", defs[i].short_name);
+    char short_name[4];
+    sprintf(short_name, "(%c)", defs[i].short_name ? defs[i].short_name : ' ');
     printf("%s%s: %s\n", defs[i].name, short_name, defs[i].desc);
-    free(short_name);
   }
 }
 
@@ -127,13 +125,16 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
     return NULL;
   }
 
-  args_t *args = (args_t *)malloc(sizeof(args_t));
-  arg_state_t *states = (arg_state_t *)calloc(num_args, sizeof(arg_state_t));
-  if (args == NULL || states == NULL) {
+  // settings size of args as args_t and states as num_args * arg_state_t in
+  // same variable for allowing pointer arithmetic
+  args_t *args = malloc(sizeof(args_t) + num_args * sizeof(arg_state_t));
+  if (args == NULL) {
     SAFE_EXIT;
   }
   args->defs = args_defs;
-  args->states = states;
+  args->states =
+      (arg_state_t *)(args + 1); // args + 1 moves memory of args by size_t
+                                 // meaning the remainder is for state
   args->num_args = num_args;
 
   // main parse loop

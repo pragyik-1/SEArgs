@@ -69,4 +69,6 @@ const arg_def_t *get_arg_def(const arg_def_t valid_args[], const char *name,
                              int num_defs);
 void *get_arg_val(args_t *args, const char *name);
 void free_args(args_t **p_args);
+bool validate_arg_defs(const arg_def_t *defs, int num_args);
+void print_help(const arg_def_t *defs, int num_args);
 #endif

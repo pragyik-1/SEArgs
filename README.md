@@ -78,5 +78,5 @@ int main(int argc, char *argv[]) {
 These are some helpers
 ```c
 args_def_t *input_arg_def = GET_DEF(args, "input"); // Gives you the definition of the arg such as name, description...
-free_args(args) // lets you cleanly free the args preventing memory leaks.
+free_args(&args) // lets you cleanly free the args preventing memory leaks.
 ```

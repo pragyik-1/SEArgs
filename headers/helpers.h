@@ -4,17 +4,9 @@
  To hoperfully make the developer experience a bit better
 */
 
-#define GET_ARG(args, name, type, default_val)                                 \
-  ({                                                                           \
-    void *__v = get_arg_val(args, name);                                       \
-    __v ? *(type *)__v                                                         \
-        : (fprintf(stderr, "Missing %s arg: %s\n", #type, name), default_val); \
-  })
-
-#define GET_INT_ARG(args, name) GET_ARG(args, name, int, 0)
-#define GET_DOUBLE_ARG(args, name) GET_ARG(args, name, double, 0.0)
-#define GET_STRING_ARG(args, name) GET_ARG(args, name, char *, NULL)
-#define GET_FLAG_ARG(args, name) GET_ARG(args, name, bool, false)
+#include "seargs.h"
+#include <errno.h>
+#include <stdio.h>
 
 #define REQUIRED_INT_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION)                   \
   ARG_DEF(LONG_NAME, SHORT_NAME, ARG_INT, DESCRIPTION, true, (arg_val_t){0})
@@ -35,11 +27,47 @@
           STRING_VAL(DEFAULT))
 #define FLAG_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION)                           \
   ARG_DEF(LONG_NAME, SHORT_NAME, ARG_FLAG, DESCRIPTION, false, FLAG_VAL)
-// NOTE: Only use this macro if defs is a static array in scope, doesnt work
-// with pointers if so use get_arg_def()
-#define GET_DEF(valid_args, name)                                              \
-  ({                                                                           \
-    const arg_def_t *__def = get_arg_def(                                      \
-        valid_args, name, sizeof(valid_args) / sizeof(valid_args[0]));         \
-    __def ? *__def : (arg_def_t){0};                                           \
-  })
+
+// gets the int value of an argument by its name, On Failure: sets the global
+// errno as EINVAL and returns 0
+static inline int get_int_arg(args_t *args, const char *name) {
+  const int *v = (const int *)get_arg_val(args, name);
+  if (!v) {
+    errno = EINVAL;
+    return 0;
+  }
+  return *v;
+}
+
+// gets the double value of an argument by its name, On Failure: sets the global
+// errno as EINVAL and returns 0
+static inline double get_double_arg(args_t *args, const char *name) {
+  const double *v = (const double *)get_arg_val(args, name);
+  if (!v) {
+    errno = EINVAL;
+    return 0.0;
+  }
+  return *v;
+}
+
+// gets the char * value of an argument by its name, On Failure: sets the global
+// errno as EINVAL and returns an empty string ""
+static inline const char *get_string_arg(args_t *args, const char *name) {
+  const char **v = (const char **)get_arg_val(args, name);
+  if (!v) {
+    errno = EINVAL;
+    return "";
+  }
+  return *v;
+}
+
+// gets the boolean/flag value of an argument by its name. On Failure: sets the
+// global errno as EINVAL and returns false
+static inline bool get_flag_arg(args_t *args, const char *name) {
+  const bool *v = (const bool *)get_arg_val(args, name);
+  if (!v) {
+    errno = EINVAL;
+    return false;
+  }
+  return *v;
+}

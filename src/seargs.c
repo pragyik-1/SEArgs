@@ -47,7 +47,7 @@ static bool str_to_double(const char *str, double *out) {
 }
 
 // Internal helper to free the strings allocated by strdup() in parse_args()
-// properly. has no use standalone.
+// properly
 static inline void _cleanup_string_states(const arg_def_t *defs,
                                           arg_state_t *states, int limit) {
   if (!states || !defs)
@@ -62,13 +62,22 @@ static inline void _cleanup_string_states(const arg_def_t *defs,
 // Internal helper to do a full cleanup of memory even if it wasnt fully
 // initialized yet.
 static inline void _cleanup_args(args_t *args) {
-  if (args == NULL) {
+  if (!args) {
     return;
   }
   if (args->states) {
     _cleanup_string_states(args->defs, args->states, args->num_args);
   }
   free(args);
+}
+
+// Helper for parse_args() to properly cleanup on failure
+static inline args_t *failure(args_t *args, const char *msg, const char *arg) {
+  if (msg) {
+    fprintf(stderr, "Error:  %s%s%s\n", msg, arg ? ": " : "", arg ? arg : "");
+  }
+  _cleanup_args(args);
+  return NULL;
 }
 
 bool validate_arg_defs(const arg_def_t *defs, int num_args) {
@@ -109,13 +118,6 @@ void print_help(const arg_def_t *defs, int num_args) {
 // to the parsed args. returns NULL on failure
 args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
                    int num_args) {
-// macro for exiting function incase of error
-#define SAFE_EXIT                                                              \
-  do {                                                                         \
-    _cleanup_args(args);                                                       \
-    return NULL;                                                               \
-  } while (0)
-
   if (!validate_arg_defs(args_defs, num_args)) {
     return NULL;
   }
@@ -128,89 +130,91 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
   // settings size of args as args_t and states as num_args * arg_state_t in
   // same variable for allowing pointer arithmetic
   args_t *args = malloc(sizeof(args_t) + num_args * sizeof(arg_state_t));
-  if (args == NULL) {
-    SAFE_EXIT;
+  if (!args) {
+    return failure(args, "Failed to allocate memory", NULL);
   }
   args->defs = args_defs;
   args->states =
-      (arg_state_t *)(args + 1); // args + 1 moves memory of args by size_t
+      (arg_state_t *)(args + 1); // args + 1 moves memory of args by args_t
                                  // meaning the remainder is for state
   args->num_args = num_args;
 
   // main parse loop
   for (int i = 1; i < argc; i++) {
     const char *arg = argv[i];
+    if (strcmp(arg, "--") == 0) {
+      break;
+    }
     if (arg[0] != '-') {
       continue;
     }
     // pointer to the address of whatever argument matched
-    const arg_def_t *matched_def = NULL;
+    const arg_def_t *matched_defs[16];
+    int num_matched = 0;
     if (arg[1] == '-') {
       for (int j = 0; j < num_args; j++) {
         if (strcmp(args->defs[j].name, arg + 2) == 0) {
-          matched_def = &args->defs[j];
+          matched_defs[num_matched++] = &args->defs[j];
           break;
         }
       }
     } else {
-      char short_name = arg[1];
-      for (int j = 0; j < num_args; j++) {
-        if (args->defs[j].short_name == short_name) {
-          matched_def = &args->defs[j];
-          break;
+      const char *short_args = arg + 1;
+      for (int k = 0; short_args[k] != '\0'; k++) {
+        for (int j = 0; j < num_args; j++) {
+          if (args->defs[j].short_name == short_args[k]) {
+            matched_defs[num_matched++] = &args->defs[j];
+            break;
+          }
         }
       }
     }
-    if (strcmp(arg, "--") == 0)
-      break;
-    if (matched_def == NULL) {
-      fprintf(stderr, "Unknown option: %s\n", arg);
-      SAFE_EXIT;
-    }
-    int index = matched_def - args->defs;
-    arg_state_t *state = &args->states[index];
-    if (state->found) {
-      fprintf(stderr, "Error: Duplicate argument found for --%s\n",
-              matched_def->name);
-      SAFE_EXIT;
-    }
-    state->found = true;
 
-    switch (matched_def->type) {
-    case ARG_FLAG:
-      state->value.flag_val = true;
-      break;
-    case ARG_INT:
-      if (i + 1 >= argc) {
-        fprintf(stderr, "missing value for %s\n", arg);
-        SAFE_EXIT;
+    if (num_matched == 0) {
+      return failure(args, "Unknown argument", arg);
+    }
+
+    for (int j = 0; j < num_matched; j++) {
+      const arg_def_t *matched_def = matched_defs[j];
+      int index = matched_def - args->defs;
+      arg_state_t *state = &args->states[index];
+      if (state->found) {
+        return failure(args, "Duplicate argument found", arg);
       }
-      if (!str_to_int(argv[++i], &state->value.int_val)) {
-        SAFE_EXIT;
+      state->found = true;
+      switch (matched_def->type) {
+      case ARG_FLAG:
+        state->value.flag_val = true;
+        break;
+      case ARG_INT:
+        if (i + 1 >= argc) {
+          return failure(args, "Missing value for", arg);
+        }
+        if (!str_to_int(argv[++i], &state->value.int_val)) {
+          return failure(args, "Invalid value for", arg);
+        }
+        break;
+      case ARG_DOUBLE:
+        if (i + 1 >= argc) {
+          return failure(args, "Missing value for", arg);
+        }
+        if (!str_to_double(argv[++i], &state->value.double_val)) {
+          return failure(args, "Invalid value for", arg);
+        }
+        break;
+      case ARG_STRING:
+        if (i + 1 >= argc) {
+          return failure(args, "Missing value for", arg);
+        }
+        state->value.string_val = str_dup(argv[++i]);
+        if (!state->value.string_val) {
+          return failure(args, "Failed to allocate memory", NULL);
+        }
+        state->string_allocated = true;
+        break;
+      default:
+        break;
       }
-      break;
-    case ARG_DOUBLE:
-      if (i + 1 >= argc) {
-        fprintf(stderr, "missing value for %s\n", arg);
-        SAFE_EXIT;
-      }
-      if (!str_to_double(argv[++i], &state->value.double_val)) {
-        SAFE_EXIT;
-      }
-      break;
-    case ARG_STRING:
-      if (i + 1 >= argc) {
-        fprintf(stderr, "missing value for %s\n", arg);
-        SAFE_EXIT;
-      }
-      state->value.string_val = str_dup(argv[++i]);
-      if (state->value.string_val == NULL) {
-        SAFE_EXIT;
-      }
-      state->string_allocated = true;
-      break;
-    default:
-      break;
     }
   }
   // loop to check argument requirements
@@ -222,20 +226,13 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
     }
 
     if (def->required) {
-      fprintf(stderr, "Missing required argument: --%s (%c)\n", def->name,
-              def->short_name);
-      SAFE_EXIT;
+      return failure(args, "Missing required argument", def->name);
     }
 
-    if (def->type == ARG_STRING) {
-      if (def->default_val.string_val == NULL) {
-        fprintf(stderr, "Missing default for optional string arg: --%s\n",
-                def->name);
-        SAFE_EXIT;
-      }
+    if (def->type == ARG_STRING && def->default_val.string_val) {
       state->value.string_val = str_dup(def->default_val.string_val);
-      if (state->value.string_val == NULL) {
-        SAFE_EXIT;
+      if (!state->value.string_val) {
+        return failure(args, "Failed to allocate memory", NULL);
       }
       state->string_allocated = true;
     } else {
@@ -244,7 +241,6 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
     }
   }
   return args;
-#undef SAFE_EXIT
 }
 
 // Free all arguments after use.
@@ -256,10 +252,8 @@ void free_args(args_t **p_args) {
   *p_args = NULL;
 }
 
-// Returns a void pointer with the value of the arg, strings are returned as is
-// and not a pointer, Returns null if not found
 void *get_arg_val(args_t *args, const char *name) {
-  if (args == NULL) {
+  if (!args) {
     return NULL;
   }
   for (int i = 0; i < args->num_args; i++) {
@@ -282,7 +276,7 @@ void *get_arg_val(args_t *args, const char *name) {
 // Returns null if the arg was not found
 const arg_def_t *get_arg_def(const arg_def_t valid_args[], const char *name,
                              int num_defs) {
-  if (valid_args == NULL) {
+  if (!valid_args) {
     return NULL;
   }
   for (int i = 0; i < num_defs; i++) {

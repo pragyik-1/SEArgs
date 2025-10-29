@@ -67,6 +67,8 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
                    int num_args);
 const arg_def_t *get_arg_def(const arg_def_t valid_args[], const char *name,
                              int num_defs);
+// Returns a void pointer with the value of the arg, strings are returned as is
+// and not a pointer, Returns null if not found
 void *get_arg_val(args_t *args, const char *name);
 void free_args(args_t **p_args);
 bool validate_arg_defs(const arg_def_t *defs, int num_args);

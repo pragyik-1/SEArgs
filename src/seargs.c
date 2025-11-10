@@ -114,6 +114,23 @@ void print_help(const arg_def_t *defs, int num_args) {
   }
 }
 
+const arg_def_t *get_matching_arg_def(const char *name, const arg_def_t *defs,
+                                      int num_args) {
+  if (!defs || num_args <= 0) {
+    return NULL;
+  }
+
+  for (int i = 0; i < num_args; i++) {
+    if (strcmp(defs[i].name, name) == 0) {
+      return &defs[i];
+    }
+    if (strlen(name) == 1 && defs[i].short_name == name[0]) {
+      return &defs[i];
+    }
+  }
+  return NULL;
+}
+
 // parses the provided arguments, checking validity and returning a pointer
 // to the parsed args. returns NULL on failure
 args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
@@ -148,25 +165,23 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
     if (arg[0] != '-') {
       continue;
     }
-    // pointer to the address of whatever argument matched
     const arg_def_t *matched_defs[16];
     int num_matched = 0;
     if (arg[1] == '-') {
-      for (int j = 0; j < num_args; j++) {
-        if (strcmp(args->defs[j].name, arg + 2) == 0) {
-          matched_defs[num_matched++] = &args->defs[j];
-          break;
-        }
+      const arg_def_t *def = get_matching_arg_def(arg + 2, args_defs, num_args);
+      if (!def) {
+        return failure(args, "Unknown argument", arg);
       }
+      matched_defs[num_matched++] = def;
     } else {
       const char *short_args = arg + 1;
       for (int k = 0; short_args[k] != '\0'; k++) {
-        for (int j = 0; j < num_args; j++) {
-          if (args->defs[j].short_name == short_args[k]) {
-            matched_defs[num_matched++] = &args->defs[j];
-            break;
-          }
+        const arg_def_t *def =
+            get_matching_arg_def(short_args + k, args_defs, num_args);
+        if (!def) {
+          return failure(args, "Unknown argument", arg);
         }
+        matched_defs[num_matched++] = def;
       }
     }
 

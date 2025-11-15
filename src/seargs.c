@@ -19,7 +19,8 @@ static char *str_dup(const char *string) {
 }
 
 // tries to convert a str into an int, returns false on failure
-static bool str_to_int(const char *str, int *out) {
+static inline bool str_to_int(const char *str, int *out) {
+  errno = 0;
   char *endptr;
   long result = strtol(str, &endptr, 0);
   if (*endptr != '\0') {
@@ -33,7 +34,8 @@ static bool str_to_int(const char *str, int *out) {
 }
 
 // tries to convert a str into a double, returns false on failure
-static bool str_to_double(const char *str, double *out) {
+static inline bool str_to_double(const char *str, double *out) {
+  errno = 0;
   char *endptr;
   double result = strtod(str, &endptr);
   if (*endptr != '\0') {
@@ -72,7 +74,7 @@ static inline void _cleanup_args(args_t *args) {
 }
 
 // Helper for parse_args() to properly cleanup on failure
-static inline args_t *failure(args_t *args, const char *msg, const char *arg) {
+static args_t *failure(args_t *args, const char *msg, const char *arg) {
   if (msg) {
     fprintf(stderr, "Error:  %s%s%s\n", msg, arg ? ": " : "", arg ? arg : "");
   }
@@ -104,14 +106,30 @@ bool validate_arg_defs(const arg_def_t *defs, int num_args) {
 }
 
 void print_help(const arg_def_t *defs, int num_args) {
-  if (!defs || num_args <= 0)
-    return;
-  printf("Usage:\n");
-  for (int i = 0; i < num_args; i++) {
-    char short_name[4];
-    sprintf(short_name, "(%c)", defs[i].short_name ? defs[i].short_name : ' ');
-    printf("%s%s: %s\n", defs[i].name, short_name, defs[i].desc);
-  }
+    if (!defs || num_args <= 0)
+        return;
+    int max_name_len = 0;
+    for (int i = 0; i < num_args; i++) {
+        int current_len = strlen(defs[i].name);
+        if (current_len > max_name_len) {
+            max_name_len = current_len;
+        }
+    }
+    int total_pad_width = max_name_len + 5; 
+    printf("Usage:\n");
+    for (int i = 0; i < num_args; i++) {
+        char short_name_part[6];
+        if (defs[i].short_name) {
+            sprintf(short_name_part, "(-%c)", defs[i].short_name);
+        } else {
+            sprintf(short_name_part, "    "); 
+        }
+        printf("  --%s %-*s  %s\n", 
+               defs[i].name, 
+               (int)(total_pad_width - strlen(defs[i].name)),
+               short_name_part, 
+               defs[i].desc);
+    }
 }
 
 const arg_def_t *get_matching_arg_def(const char *name, const arg_def_t *defs,

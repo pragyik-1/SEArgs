@@ -50,6 +50,13 @@ static inline double get_double_arg(args_t *args, const char *name) {
   return *v;
 }
 
+// gets the float value of an argument by its name, On Failure: sets the global
+// errno as EINVAL and returns 0
+static inline float get_float_arg(args_t *args, const char *name) {
+  return (float)get_double_arg(args, name);
+}
+
+
 // gets the char * value of an argument by its name, On Failure: sets the global
 // errno as EINVAL and returns an empty string ""
 static inline const char *get_string_arg(args_t *args, const char *name) {

@@ -3,6 +3,11 @@
 
 #include <errno.h>
 #include <stdbool.h>
+#include <string.h>
+
+// <-------- Constant (Configurable) Macros -------->
+#define MAX_SHORT_ARGS 16
+// <------------------------------------------------>
 
 #define ARG_DEF(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, REQUIRED, DEFAULT)   \
   (arg_def_t) {                                                                \
@@ -67,7 +72,7 @@ typedef struct {
 } args_t;
 
 args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
-                   int num_args);
+                   size_t num_args);
 const arg_def_t *get_arg_def(const arg_def_t valid_args[], const char *name,
                              int num_defs);
 // Returns a void pointer with the value of the arg, strings are returned as is
@@ -78,7 +83,15 @@ bool validate_arg_defs(const arg_def_t *defs, int num_args);
 void print_help(const arg_def_t *defs, int num_args);
 
 // ##########
-// <-------------- HELPER MACROS AND FUNCTIONS ------------------->
+// <-------------- INTERNAL HELPER MACROS AND FUNCTIONS ------------------->
+// ##########
+static bool contains_format_specifier(const char *str) {
+  if (!str) return false;
+  return strchr(str, '%') != NULL;
+}
+
+// ##########
+// <-------------- API HELPER MACROS AND FUNCTIONS ------------------->
 // ##########
 
 #define REQUIRED_INT_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION)                   \

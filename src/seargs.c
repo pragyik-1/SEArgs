@@ -92,7 +92,21 @@ bool validate_arg_defs(const arg_def_t *defs, int num_args) {
       fprintf(stderr, "Argument name cannot be null\n");
       return false;
     }
+    for (int i = 0; i < num_args; i++) {
+      if (contains_format_specifier(defs[i].name) ||
+          contains_format_specifier(defs[i].desc)) {
+        fprintf(
+            stderr,
+            "Argument name/description contains invalid format specifier: %s\n",
+            defs[i].name);
+        return false;
+      }
+    }
     for (int j = i + 1; j < num_args; j++) {
+      if (!defs[j].name) {
+        fprintf(stderr, "Argument name cannot be null\n");
+        return false;
+      }
       if (strcmp(defs[i].name, defs[j].name) == 0) {
         fprintf(stderr, "Duplicate argument name: %s\n", defs[i].name);
         return false;
@@ -133,16 +147,17 @@ void print_help(const arg_def_t *defs, int num_args) {
 }
 
 const arg_def_t *get_matching_arg_def(const char *name, const arg_def_t *defs,
-                                      int num_args) {
-  if (!defs || num_args <= 0) {
+                                      int num_args, bool is_short_name) {
+  if (!defs || num_args <= 0 || !name) {
     return NULL;
   }
 
   for (int i = 0; i < num_args; i++) {
-    if (strcmp(defs[i].name, name) == 0) {
+    if (!is_short_name && strcmp(defs[i].name, name) == 0) {
       return &defs[i];
     }
-    if (strlen(name) == 1 && defs[i].short_name == name[0]) {
+    if (is_short_name && strlen(name) == 1 && defs[i].short_name == name[0] &&
+        name[0] != '-') {
       return &defs[i];
     }
   }
@@ -152,7 +167,7 @@ const arg_def_t *get_matching_arg_def(const char *name, const arg_def_t *defs,
 // parses the provided arguments, checking validity and returning a pointer
 // to the parsed args. returns NULL on failure
 args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
-                   int num_args) {
+                   size_t num_args) {
   if (!validate_arg_defs(args_defs, num_args)) {
     return NULL;
   }
@@ -183,19 +198,24 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
     if (arg[0] != '-') {
       continue;
     }
-    const arg_def_t *matched_defs[16];
+    const arg_def_t *matched_defs[MAX_SHORT_ARGS];
     int num_matched = 0;
     if (arg[1] == '-') {
-      const arg_def_t *def = get_matching_arg_def(arg + 2, args_defs, num_args);
+      const arg_def_t *def =
+          get_matching_arg_def(arg + 2, args_defs, num_args, false);
       if (!def) {
         return failure(args, "Unknown argument", arg);
       }
       matched_defs[num_matched++] = def;
     } else {
       const char *short_args = arg + 1;
+      if (short_args[0] == '\0' || strlen(short_args) > MAX_SHORT_ARGS) {
+        return failure(args, "Invalid short argument", arg);
+      }
       for (int k = 0; short_args[k] != '\0'; k++) {
+        char short_char[2] = {short_args[k], '\0'};
         const arg_def_t *def =
-            get_matching_arg_def(short_args + k, args_defs, num_args);
+            get_matching_arg_def(short_char, args_defs, num_args, true);
         if (!def) {
           return failure(args, "Unknown argument", arg);
         }

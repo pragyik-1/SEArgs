@@ -4,7 +4,7 @@
 
 int main(int argc, const char *argv[]) {
   const arg_def_t valid_args[] = {
-      REQUIRED_ARG("input", 'i', ARG_STRING, "Input file path."),
+      REQUIRED_STRING_ARG("input", 'i', "Input file path."),
       OPTIONAL_ARG("output", 'o', ARG_STRING, "Output directory.",
                    STRING_VAL("./")),
       OPTIONAL_ARG("somecount", 's', ARG_INT, "E", INT_VAL(3)),

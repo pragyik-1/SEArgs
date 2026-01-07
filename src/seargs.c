@@ -1,6 +1,7 @@
 
 #include "../headers/seargs.h"
 #include <errno.h>
+#include <float.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -41,7 +42,7 @@ static inline bool str_to_double(const char *str, double *out) {
   if (*endptr != '\0') {
     return false;
   }
-  if (errno == ERANGE) {
+  if (errno == ERANGE || result < DBL_MIN || result > DBL_MAX) {
     return false;
   }
   *out = result;
@@ -106,30 +107,29 @@ bool validate_arg_defs(const arg_def_t *defs, int num_args) {
 }
 
 void print_help(const arg_def_t *defs, int num_args) {
-    if (!defs || num_args <= 0)
-        return;
-    int max_name_len = 0;
-    for (int i = 0; i < num_args; i++) {
-        int current_len = strlen(defs[i].name);
-        if (current_len > max_name_len) {
-            max_name_len = current_len;
-        }
+  if (!defs || num_args <= 0)
+    return;
+  int max_name_len = 0;
+  for (int i = 0; i < num_args; i++) {
+    int current_len = strlen(defs[i].name);
+    if (current_len > max_name_len) {
+      max_name_len = current_len;
     }
-    int total_pad_width = max_name_len + 5; 
-    printf("Usage:\n");
-    for (int i = 0; i < num_args; i++) {
-        char short_name_part[6];
-        if (defs[i].short_name) {
-            sprintf(short_name_part, "(-%c)", defs[i].short_name);
-        } else {
-            sprintf(short_name_part, "    "); 
-        }
-        printf("  --%s %-*s  %s\n", 
-               defs[i].name, 
-               (int)(total_pad_width - strlen(defs[i].name)),
-               short_name_part, 
-               defs[i].desc);
+  }
+  int total_pad_width = max_name_len + 5;
+  printf("Usage:\n");
+  for (int i = 0; i < num_args; i++) {
+    char short_name_part[6];
+    if (defs[i].short_name) {
+      snprintf(short_name_part, sizeof(short_name_part), "(-%c)",
+               defs[i].short_name);
+    } else {
+      snprintf(short_name_part, sizeof(short_name_part), "    ");
     }
+    printf("  --%s %-*s  %s\n", defs[i].name,
+           (int)(total_pad_width - strlen(defs[i].name)), short_name_part,
+           defs[i].desc);
+  }
 }
 
 const arg_def_t *get_matching_arg_def(const char *name, const arg_def_t *defs,
@@ -164,7 +164,7 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
 
   // settings size of args as args_t and states as num_args * arg_state_t in
   // same variable for allowing pointer arithmetic
-  args_t *args = malloc(sizeof(args_t) + num_args * sizeof(arg_state_t));
+  args_t *args = calloc(1, sizeof(args_t) + num_args * sizeof(arg_state_t));
   if (!args) {
     return failure(args, "Failed to allocate memory", NULL);
   }
@@ -249,6 +249,8 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
         break;
       }
     }
+    args->pos_args = (i < argc) ? &argv[i] : NULL;
+    args->num_pos_args = (i < argc) ? argc - i : 0;
   }
   // loop to check argument requirements
   for (int i = 0; i < num_args; i++) {

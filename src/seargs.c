@@ -1,5 +1,5 @@
 
-#include "../headers/seargs.h"
+#include "seargs.h"
 #include <errno.h>
 #include <float.h>
 #include <limits.h>
@@ -77,7 +77,7 @@ static inline void _cleanup_args(args_t *args) {
 // Helper for parse_args() to properly cleanup on failure
 static args_t *failure(args_t *args, const char *msg, const char *arg) {
   if (msg) {
-    fprintf(stderr, "Error:  %s%s%s\n", msg, arg ? ": " : "", arg ? arg : "");
+    fprintf(stderr, "%s%s%s\n", msg, arg ? ": " : "", arg ? arg : "");
   }
   _cleanup_args(args);
   return NULL;
@@ -151,17 +151,74 @@ const arg_def_t *get_matching_arg_def(const char *name, const arg_def_t *defs,
   if (!defs || num_args <= 0 || !name) {
     return NULL;
   }
-
-  for (int i = 0; i < num_args; i++) {
-    if (!is_short_name && strcmp(defs[i].name, name) == 0) {
-      return &defs[i];
+  if (is_short_name && strlen(name) > 1) {
+    return NULL;
+  }
+  if (!is_short_name) {
+    for (int i = 0; i < num_args; i++) {
+      if (strcmp(defs[i].name, name) == 0) {
+        return &defs[i];
+      }
     }
-    if (is_short_name && strlen(name) == 1 && defs[i].short_name == name[0] &&
-        name[0] != '-') {
-      return &defs[i];
+    return NULL;
+  }
+  if (is_short_name) {
+    for (int i = 0; i < num_args; i++) {
+      if (defs[i].short_name == name[0]) {
+        return &defs[i];
+      }
     }
+    return NULL;
   }
   return NULL;
+}
+
+// (args_t *) but only ever returns the arg you passed in or null for error.
+// that is return truthy value on success otherwise a falsy value.
+args_t *assign_value(const arg_def_t *def, const char *argv[], int *i, int argc,
+                     args_t *args, arg_state_t *state) {
+  if (!state || !def) {
+    return NULL;
+  }
+  if (*i >= argc) {
+    return failure(args, "Missing value for", def->name);
+  }
+  const char *arg = argv[*i];
+  state->found = true;
+  switch (def->type) {
+  case ARG_FLAG:
+    state->value.flag_val = true;
+    break;
+  case ARG_INT:
+    if (*i + 1 >= argc) {
+      return failure(args, "Missing value for", arg);
+    }
+    if (!str_to_int(argv[++*i], &state->value.int_val)) {
+      return failure(args, "Invalid value for", arg);
+    }
+    break;
+  case ARG_DOUBLE:
+    if (*i + 1 >= argc) {
+      return failure(args, "Missing value for", arg);
+    }
+    if (!str_to_double(argv[++*i], &state->value.double_val)) {
+      return failure(args, "Invalid value for", arg);
+    }
+    break;
+  case ARG_STRING:
+    if (*i + 1 >= argc) {
+      return failure(args, "Missing value for", arg);
+    }
+    state->value.string_val = str_dup(argv[++*i]);
+    if (!state->value.string_val) {
+      return failure(args, "Failed to allocate memory", NULL);
+    }
+    state->string_allocated = true;
+    break;
+  default:
+    break;
+  }
+  return args;
 }
 
 // parses the provided arguments, checking validity and returning a pointer
@@ -206,67 +263,36 @@ args_t *parse_args(int argc, const char *argv[], const arg_def_t *args_defs,
       if (!def) {
         return failure(args, "Unknown argument", arg);
       }
-      matched_defs[num_matched++] = def;
+      int def_index = def - args_defs;
+      arg_state_t *state = &args->states[def_index];
+      if (!assign_value(def, argv, &i, argc, args, state)) {
+        return NULL;
+      };
     } else {
-      const char *short_args = arg + 1;
-      if (short_args[0] == '\0' || strlen(short_args) > MAX_SHORT_ARGS) {
+      const char *arg_cluster = arg + 1;
+      puts(arg_cluster);
+      if (arg_cluster[0] == '\0' || strlen(arg_cluster) > MAX_SHORT_ARGS) {
         return failure(args, "Invalid short argument", arg);
       }
-      for (int k = 0; short_args[k] != '\0'; k++) {
-        char short_char[2] = {short_args[k], '\0'};
+      for (int j = 0; arg_cluster[j] != '\0'; j++) {
+        char short_char[2] = {arg_cluster[j], '\0'};
+        bool is_last = arg_cluster[j + 1] == '\0';
         const arg_def_t *def =
             get_matching_arg_def(short_char, args_defs, num_args, true);
         if (!def) {
           return failure(args, "Unknown argument", arg);
         }
-        matched_defs[num_matched++] = def;
-      }
-    }
-
-    if (num_matched == 0) {
-      return failure(args, "Unknown argument", arg);
-    }
-
-    for (int j = 0; j < num_matched; j++) {
-      const arg_def_t *matched_def = matched_defs[j];
-      int index = matched_def - args->defs;
-      arg_state_t *state = &args->states[index];
-      if (state->found) {
-        return failure(args, "Duplicate argument found", arg);
-      }
-      state->found = true;
-      switch (matched_def->type) {
-      case ARG_FLAG:
-        state->value.flag_val = true;
-        break;
-      case ARG_INT:
-        if (i + 1 >= argc) {
-          return failure(args, "Missing value for", arg);
+        if (def->type != ARG_FLAG && !is_last) {
+          return failure(args, "Non-flag must be last in cluster", arg);
         }
-        if (!str_to_int(argv[++i], &state->value.int_val)) {
-          return failure(args, "Invalid value for", arg);
+        int def_index = def - args_defs;
+        arg_state_t *state = &args->states[def_index];
+        if (!assign_value(def, argv, &i, argc, args, state)) {
+          return NULL;
         }
-        break;
-      case ARG_DOUBLE:
-        if (i + 1 >= argc) {
-          return failure(args, "Missing value for", arg);
+        if (def->type != ARG_FLAG) {
+          break;
         }
-        if (!str_to_double(argv[++i], &state->value.double_val)) {
-          return failure(args, "Invalid value for", arg);
-        }
-        break;
-      case ARG_STRING:
-        if (i + 1 >= argc) {
-          return failure(args, "Missing value for", arg);
-        }
-        state->value.string_val = str_dup(argv[++i]);
-        if (!state->value.string_val) {
-          return failure(args, "Failed to allocate memory", NULL);
-        }
-        state->string_allocated = true;
-        break;
-      default:
-        break;
       }
     }
     args->pos_args = (i < argc) ? &argv[i] : NULL;

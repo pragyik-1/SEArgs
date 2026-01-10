@@ -117,6 +117,7 @@ static bool contains_format_specifier(const char *str) {
 // gets the int value of an argument by its name, On Failure: sets the global
 // errno as EINVAL and returns 0
 static inline int get_int_arg(args_t *args, const char *name) {
+  
   const int *v = (const int *)get_arg_val(args, name);
   if (!v) {
     errno = EINVAL;
@@ -148,7 +149,7 @@ static inline const char *get_string_arg(args_t *args, const char *name) {
   const char **v = (const char **)get_arg_val(args, name);
   if (!v) {
     errno = EINVAL;
-    return "";
+    return NULL;
   }
   return *v;
 }

@@ -114,41 +114,61 @@ After usage the parser should be freed using the `free_parser()` function to avo
 free_parser(&parser);
 ```
 
-## API Reference
-```c
-REQUIRED_ARG(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION)
-/*
-The default value expects you to use one of the builtin macros to input a default value depending on the type.
-Such as if you wanted an int as the default you would do INT_VAL(20). the type of default and the type you put in must be the same.
-*/
-OPTIONAL_ARG(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, DEFAULT)
-```
+# Seargs API Reference
 
-Though this may feel slightly cumbersome especially with the requirements of additional macros like `INT_VAL(20)` and as such more macros are provided:
+`seargs` is a macro-based C library designed for simple and declarative command-line argument parsing.
 
-```c
-REQUIRED_INT_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION)
-OPTIONAL_INT_ARG(LONG_NAME, SHORT_NAME, DESCRIPTION, DEFAULT) // Note that typed arg macros don't require their specific X_VAL() macro.
+## 1. Argument Definition
 
-// More of such macros can be found at the top of the seargs.h header file.
-```
+These macros are used to register expected arguments within your parser configuration.
 
-Here is a brief description of all of the parameters
+### Core Macros
 
-- `LONG_NAME`: (string expected) It is the actual name of the agrument such as "input"
-- `SHORT_NAME`: (char expected) You can optionally provide a short name such as "i" for arguments, you would use 0 to disable this.
-- `TYPE`: It is the type of value you expect this arg to contain. Usually you wouldnt need this if you are using the typed macros.
-- `DESCRIPTION`: An optional description you can provide for your arg, leave as empty string to disable this.
+Use these for generic definitions. When providing a `DEFAULT` for `OPTIONAL_ARG`, you must wrap the value in a type-specific macro (e.g., `INT_VAL(10)` or `STR_VAL("default")`).
 
-### API Reference
+| Macro | Description | 
+| ----- | ----- | 
+| `REQUIRED_ARG(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION)` | Parsing fails if this argument is not present in the command line. | 
+| `OPTIONAL_ARG(LONG_NAME, SHORT_NAME, TYPE, DESCRIPTION, DEFAULT)` | Defaults to the provided value if the user does not specify it. | 
 
-`REQUIRED_X_ARG`	Parsing fails if this argument is not present.
-`OPTIONAL_X_ARG`	Takes a default value if not provided.
-`FLAG_ARG`	A boolean switch (no value needed). Defaults to false
+### Typed Convenience Macros
 
-#### Value Retrieval
+These shorthand macros simplify definitions by removing the need for explicit type enums or value-wrapping macros.
 
-`GET_STRING_ARG(parser, name)`
-`GET_INT_ARG(parser, name)`
-`GET_FLAG_ARG(parser, name)`
-`GET_X_ARG(parser, name)`
+| Type | Required Variant | Optional Variant | 
+| ----- | ----- | ----- | 
+| **Integer** | `REQUIRED_INT_ARG(LONG, SHORT, DESC)` | `OPTIONAL_INT_ARG(LONG, SHORT, DESC, DEFAULT)` | 
+| **Double** | `REQUIRED_DOUBLE_ARG(LONG, SHORT, DESC)` | `OPTIONAL_DOUBLE_ARG(LONG, SHORT, DESC, DEFAULT)` | 
+| **String** | `REQUIRED_STRING_ARG(LONG, SHORT, DESC)` | `OPTIONAL_STRING_ARG(LONG, SHORT, DESC, DEFAULT)` | 
+| **Boolean** | — | `FLAG_ARG(LONG, SHORT, DESC)` | 
+
+> **Note on Flags:** `FLAG_ARG` acts as a boolean switch. It requires no value from the user and defaults to `false` if absent.
+
+## 2. Parameter Glossary
+
+| Parameter | Type | Description | 
+| ----- | ----- | ----- | 
+| `LONG_NAME` | `string` | The primary identifier for the argument (e.g., `"output"`). | 
+| `SHORT_NAME` | `char` | A single character alias (e.g., `'o'`). Use `0` if no short name is desired. | 
+| `TYPE` | `macro` | The expected data type (e.g., `ARG_INT`, `ARG_STRING`). | 
+| `DESCRIPTION` | `string` | A help string for the argument. Use `""` for no description. | 
+| `DEFAULT` | `mixed` | The fallback value used when an optional argument is missing. | 
+
+## 3. Value Retrieval & Error Handling
+
+Use these macros to access parsed values. These macros automatically clear the previous error state before evaluation.
+
+### Type-Specific Getters
+
+* `GET_INT_ARG(parser, name)` — Retrieves the value as an `int`.
+* `GET_DOUBLE_ARG(parser, name)` — Retrieves the value as a `double`.
+* `GET_FLOAT_ARG(parser, name)` — Retrieves the value as a `float`.
+* `GET_STRING_ARG(parser, name)` — Retrieves the value as a `char*`.
+* `GET_FLAG_ARG(parser, name)` — Retrieves the boolean state of a flag.
+
+### Error Checking Utilities
+
+You can check the state of the parser using these boolean macros:
+
+* `seargs_ok(parser)` — Returns true if the parser is in a valid state.
+* `seargs_err(parser)` — Returns true if an error occurred during parsing or retrieval.

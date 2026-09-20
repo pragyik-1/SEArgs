@@ -1,21 +1,12 @@
 #ifndef SEARGS_H
 #define SEARGS_H
 
-// seargs: a small, dependency-free command-line argument parser.
-//
-// Define SEARGS_IMPLEMENTATION in exactly one translation unit before including
-// this header. The library performs a single heap allocation (the parser and its
-// states) and a single free; seargs_free(NULL) is a no-op.
-//
-// All errors are reported through parser->error (see seargs_error_info_t).
-// Callers only need seargs_parse_args + the typed accessors; nothing else
-// happens behind the scenes.
-
 #include <assert.h>
 #include <ctype.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 // ===== Public API =====
 
@@ -23,13 +14,14 @@
 #define ARG_NAME_MAX_SIZE 64
 #define ARG_VAL_MAX_SIZE 256
 
-// Reserved definition flags. They are accepted (and validated) today but have no
-// effect yet; they exist so that future features (positional arguments, case
-// insensitive names, repeatable options) do not require struct changes.
+// Definition flags. SEARGS_FLAG_POSITIONAL marks an argument that is matched by
+// position on the command line rather than by name; it is never usable as an
+// option and may not declare a short name. The remaining flags are reserved for
+// future features and are accepted but have no effect yet.
 #define SEARGS_FLAG_POSITIONAL (1u << 0)
 #define SEARGS_FLAG_CASE_INSENSITIVE (1u << 1)
 #define SEARGS_FLAG_REPEATABLE (1u << 2)
-#define SEARGS_FLAG_MASK                                                                      \
+#define SEARGS_FLAG_MASK                                                                           \
   (SEARGS_FLAG_POSITIONAL | SEARGS_FLAG_CASE_INSENSITIVE | SEARGS_FLAG_REPEATABLE)
 
 typedef enum {
@@ -46,6 +38,7 @@ typedef enum {
   SEARGS_INVALID_VALUE, // a value could not be converted to the argument's type
   SEARGS_MISSING_VALUE, // an argument that requires a value got none
   SEARGS_UNKNOWN_ARG,   // the option is not defined
+  SEARGS_TOO_MANY_ARGS, // a token arrived after every positional slot was filled
 
   // Definition validation errors
   SEARGS_DEF_TABLE_NULL,
@@ -56,7 +49,8 @@ typedef enum {
   SEARGS_DEF_DUPLICATE_NAME,
   SEARGS_DEF_DUPLICATE_SHORT_NAME,
   SEARGS_DEF_INVALID_TYPE,
-  SEARGS_DEF_INVALID_FLAGS, // unknown bits set in def->flags
+  SEARGS_DEF_INVALID_FLAGS,      // unknown bits set in def->flags
+  SEARGS_DEF_POSITIONAL_INVALID, // a positional argument declared a short name
 } seargs_error_t;
 
 typedef union {
@@ -68,13 +62,125 @@ typedef union {
 
 typedef struct {
   const char *name;
-  char short_name; // '\0' = none
+  char short_name;  // '\0' = none
   const char *desc; // may be NULL
   bool is_required;
   seargs_arg_type_t type;
   seargs_arg_val_t default_val;
   uint32_t flags; // 0 or a combination of SEARGS_FLAG_*
 } seargs_arg_def_t;
+
+// Convenience initializers for seargs_arg_def_t; each expands to a braced
+// initializer usable where a def belongs, including inside a defs[] array.
+// Every optional carries an explicit default (absent never yields a silent
+// NULL / 0). REQUIRED_<T>_ARG(name, short, desc) is required; OPTIONAL_<T>_ARG
+// (name, short, desc, default) is optional with default. POSITIONAL_*_ARG
+// match by position, take no short name and are never usable as options. BOOL
+// has no positional form. desc may be NULL; pass SEARGS_NO_SHORT_NAME for none.
+
+#define SEARGS_REQUIRED_BOOL_ARG(name_, short_, desc_)                                             \
+  {.name = (name_),                                                                                \
+   .short_name = (short_),                                                                         \
+   .desc = (desc_),                                                                                \
+   .is_required = true,                                                                            \
+   .type = SEARGS_TYPE_BOOL}
+
+#define SEARGS_OPTIONAL_BOOL_ARG(name_, short_, desc_, default_)                                   \
+  {                                                                                                \
+    .name = (name_), .short_name = (short_), .desc = (desc_), .type = SEARGS_TYPE_BOOL,            \
+    .default_val = {                                                                               \
+      .bool_val = (default_)                                                                       \
+    }                                                                                              \
+  }
+
+#define SEARGS_REQUIRED_STRING_ARG(name_, short_, desc_)                                           \
+  {.name = (name_),                                                                                \
+   .short_name = (short_),                                                                         \
+   .desc = (desc_),                                                                                \
+   .is_required = true,                                                                            \
+   .type = SEARGS_TYPE_STRING}
+
+#define SEARGS_OPTIONAL_STRING_ARG(name_, short_, desc_, default_)                                 \
+  {                                                                                                \
+    .name = (name_), .short_name = (short_), .desc = (desc_), .type = SEARGS_TYPE_STRING,          \
+    .default_val = {                                                                               \
+      .str_val = (default_)                                                                        \
+    }                                                                                              \
+  }
+
+#define SEARGS_POSITIONAL_REQUIRED_STRING_ARG(name_, desc_)                                        \
+  {.name = (name_),                                                                                \
+   .desc = (desc_),                                                                                \
+   .is_required = true,                                                                            \
+   .type = SEARGS_TYPE_STRING,                                                                     \
+   .flags = SEARGS_FLAG_POSITIONAL}
+
+#define SEARGS_POSITIONAL_OPTIONAL_STRING_ARG(name_, desc_, default_)                              \
+  {.name = (name_),                                                                                \
+   .desc = (desc_),                                                                                \
+   .type = SEARGS_TYPE_STRING,                                                                     \
+   .default_val = {.str_val = (default_)},                                                         \
+   .flags = SEARGS_FLAG_POSITIONAL}
+
+#define SEARGS_REQUIRED_INT_ARG(name_, short_, desc_)                                              \
+  {.name = (name_),                                                                                \
+   .short_name = (short_),                                                                         \
+   .desc = (desc_),                                                                                \
+   .is_required = true,                                                                            \
+   .type = SEARGS_TYPE_INT}
+
+#define SEARGS_OPTIONAL_INT_ARG(name_, short_, desc_, default_)                                    \
+  {                                                                                                \
+    .name = (name_), .short_name = (short_), .desc = (desc_), .type = SEARGS_TYPE_INT,             \
+    .default_val = {                                                                               \
+      .int_val = (default_)                                                                        \
+    }                                                                                              \
+  }
+
+#define SEARGS_POSITIONAL_REQUIRED_INT_ARG(name_, desc_)                                           \
+  {.name = (name_),                                                                                \
+   .desc = (desc_),                                                                                \
+   .is_required = true,                                                                            \
+   .type = SEARGS_TYPE_INT,                                                                        \
+   .flags = SEARGS_FLAG_POSITIONAL}
+
+#define SEARGS_POSITIONAL_OPTIONAL_INT_ARG(name_, desc_, default_)                                 \
+  {.name = (name_),                                                                                \
+   .desc = (desc_),                                                                                \
+   .type = SEARGS_TYPE_INT,                                                                        \
+   .default_val = {.int_val = (default_)},                                                         \
+   .flags = SEARGS_FLAG_POSITIONAL}
+
+#define SEARGS_REQUIRED_DOUBLE_ARG(name_, short_, desc_)                                           \
+  {.name = (name_),                                                                                \
+   .short_name = (short_),                                                                         \
+   .desc = (desc_),                                                                                \
+   .is_required = true,                                                                            \
+   .type = SEARGS_TYPE_DOUBLE}
+
+#define SEARGS_OPTIONAL_DOUBLE_ARG(name_, short_, desc_, default_)                                 \
+  {                                                                                                \
+    .name = (name_), .short_name = (short_), .desc = (desc_), .type = SEARGS_TYPE_DOUBLE,          \
+    .default_val = {                                                                               \
+      .double_val = (default_)                                                                     \
+    }                                                                                              \
+  }
+
+#define SEARGS_POSITIONAL_REQUIRED_DOUBLE_ARG(name_, desc_)                                        \
+  {.name = (name_),                                                                                \
+   .desc = (desc_),                                                                                \
+   .is_required = true,                                                                            \
+   .type = SEARGS_TYPE_DOUBLE,                                                                     \
+   .flags = SEARGS_FLAG_POSITIONAL}
+
+#define SEARGS_POSITIONAL_OPTIONAL_DOUBLE_ARG(name_, desc_, default_)                              \
+  {.name = (name_),                                                                                \
+   .desc = (desc_),                                                                                \
+   .type = SEARGS_TYPE_DOUBLE,                                                                     \
+   .default_val = {.double_val = (default_)},                                                      \
+   .flags = SEARGS_FLAG_POSITIONAL}
+
+#define IS_SEARGS_OK(p_) (p_->error.code == SEARGS_OK)
 
 typedef struct {
   const seargs_arg_def_t *def; // back-pointer; non-NULL after a successful parse
@@ -85,8 +191,8 @@ typedef struct {
 
 typedef struct {
   seargs_error_t code;
-  size_t index;     // def index that caused the error; SIZE_MAX when not applicable
-  const char *arg;  // argv token that caused the error; NULL when not applicable
+  size_t index;       // def index that caused the error; SIZE_MAX when not applicable
+  const char *arg;    // argv token that caused the error; NULL when not applicable
   const char *detail; // optional static message; may be NULL
 } seargs_error_info_t;
 
@@ -102,16 +208,6 @@ typedef struct {
 //   - On a definition or parse error returns a parser whose error.code != SEARGS_OK;
 //     it must still be released with seargs_free.
 //   - On success returns a parser with error.code == SEARGS_OK.
-//
-// Behavior notes (the caller never needs to read the implementation):
-//   - An argument value starting with '-' must be attached with '=' unless the
-//     argument is numeric and the token parses as a number (e.g. `--count=-5`,
-//     `--count -5`, but not `--str -x`).
-//   - `--` ends option parsing; everything after it is currently ignored
-//     (positional support is a planned future feature).
-//   - A lone '-' is rejected as an unknown option.
-//   - String values alias the caller's argv strings; keep argv alive while using
-//     the parsed values.
 seargs_parser_t *seargs_parse_args(int argc, char *const argv[], const seargs_arg_def_t *arg_defs,
                                    size_t n_arg_defs);
 
@@ -124,6 +220,8 @@ const seargs_arg_state_t *seargs_get_state(const seargs_parser_t *p, const char 
 
 // Returns true if the argument was provided on the command line.
 bool seargs_is_found(const seargs_parser_t *p, const char *name);
+
+void print_help(const seargs_arg_def_t *defs, int num_args);
 
 // Typed accessors. They assert (in debug builds) that the name exists and that the
 // argument's type matches; in release builds they return the default, 0 or NULL on
@@ -233,7 +331,7 @@ static inline bool is_valid_short_name(char c) {
   return c != '-' && c != '=' && c != ' ' && u >= 0x20 && u != 0x7f;
 }
 
-static inline bool is_long_arg(const char *arg) { return arg[1] == '-'; }
+static inline bool is_long_arg(const char *arg) { return arg[0] == '-' && arg[1] == '-'; }
 
 // A token that looks like an option. A lone '-' is deliberately NOT an option
 // token; it is conventionally a positional ("stdin") marker.
@@ -245,6 +343,19 @@ static size_t seargs_find_def_index(const seargs_parser_t *p, const char *name) 
 
   for (size_t i = 0; i < p->n_arg_defs; i++) {
     if (strcmp(p->arg_defs[i].name, name) == 0)
+      return i;
+  }
+  return SIZE_MAX;
+}
+
+// Like seargs_find_def_index, but skips positional arguments: their names are
+// matched by position and cannot be used as options.
+static size_t seargs_find_option_def_index(const seargs_parser_t *p, const char *name) {
+  if (!p || !name)
+    return SIZE_MAX;
+
+  for (size_t i = 0; i < p->n_arg_defs; i++) {
+    if (!(p->arg_defs[i].flags & SEARGS_FLAG_POSITIONAL) && strcmp(p->arg_defs[i].name, name) == 0)
       return i;
   }
   return SIZE_MAX;
@@ -287,7 +398,8 @@ static void validate_defs(const seargs_arg_def_t *defs, size_t n, seargs_error_i
     }
 
     if (d->name[0] == '-') {
-      seargs_report_err(p_err, SEARGS_DEF_NAME_INVALID, i, NULL, "arg name must not start with '-'");
+      seargs_report_err(p_err, SEARGS_DEF_NAME_INVALID, i, NULL,
+                        "arg name must not start with '-'");
       return;
     }
 
@@ -313,13 +425,21 @@ static void validate_defs(const seargs_arg_def_t *defs, size_t n, seargs_error_i
     case SEARGS_TYPE_STRING:
       break;
     default:
-      seargs_report_err(p_err, SEARGS_DEF_INVALID_TYPE, i, NULL, "arg type is not a valid enum value");
+      seargs_report_err(p_err, SEARGS_DEF_INVALID_TYPE, i, NULL,
+                        "arg type is not a valid enum value");
       return;
     }
 
     // --- Flags ---
     if (d->flags & ~SEARGS_FLAG_MASK) {
       seargs_report_err(p_err, SEARGS_DEF_INVALID_FLAGS, i, NULL, "arg flags contain unknown bits");
+      return;
+    }
+
+    // --- Positional arguments ---
+    if ((d->flags & SEARGS_FLAG_POSITIONAL) && sc != SEARGS_NO_SHORT_NAME) {
+      seargs_report_err(p_err, SEARGS_DEF_POSITIONAL_INVALID, i, NULL,
+                        "a positional argument cannot declare a short name");
       return;
     }
 
@@ -331,7 +451,8 @@ static void validate_defs(const seargs_arg_def_t *defs, size_t n, seargs_error_i
       }
 
       if (sc != SEARGS_NO_SHORT_NAME && defs[j].short_name == sc) {
-        seargs_report_err(p_err, SEARGS_DEF_DUPLICATE_SHORT_NAME, i, NULL, "duplicate short arg name");
+        seargs_report_err(p_err, SEARGS_DEF_DUPLICATE_SHORT_NAME, i, NULL,
+                          "duplicate short arg name");
         return;
       }
     }
@@ -451,6 +572,33 @@ static bool assign_value(seargs_parser_t *parser, seargs_arg_state_t *state, siz
   return true;
 }
 
+// True when at least one def is declared positional.
+static bool parser_has_positionals(const seargs_parser_t *p) {
+  for (size_t i = 0; i < p->n_arg_defs; i++)
+    if (p->arg_defs[i].flags & SEARGS_FLAG_POSITIONAL)
+      return true;
+  return false;
+}
+
+// Gives token to the next positional def that has no value yet, scanning from
+// *cursor. Exactly one slot is filled per call. Reports SEARGS_TOO_MANY_ARGS
+// when every positional def is already filled.
+static bool parse_positional(seargs_parser_t *parser, size_t *cursor, const char *token) {
+  size_t idx = *cursor;
+
+  while (idx < parser->n_arg_defs && !(parser->arg_defs[idx].flags & SEARGS_FLAG_POSITIONAL))
+    idx++;
+
+  if (idx == parser->n_arg_defs) {
+    seargs_report_err(&parser->error, SEARGS_TOO_MANY_ARGS, SIZE_MAX, token,
+                      "too many positional arguments");
+    return false;
+  }
+
+  *cursor = idx + 1;
+  return assign_value(parser, &parser->states[idx], idx, token, token);
+}
+
 static bool parse_long_arg(char *const argv[], int argc, seargs_parser_t *parser, int *p_i) {
   const char *arg = argv[*p_i];
   const char *opt_name = arg + 2;
@@ -469,10 +617,9 @@ static bool parse_long_arg(char *const argv[], int argc, seargs_parser_t *parser
   memcpy(name, opt_name, name_len);
   name[name_len] = '\0';
 
-  const size_t def_index = seargs_find_def_index(parser, name);
+  const size_t def_index = seargs_find_option_def_index(parser, name);
   if (def_index == SIZE_MAX) {
-    seargs_report_err(&parser->error, SEARGS_UNKNOWN_ARG, SIZE_MAX, arg,
-                      "No such argument exists");
+    seargs_report_err(&parser->error, SEARGS_UNKNOWN_ARG, SIZE_MAX, arg, "No such argument exists");
     return false;
   }
 
@@ -536,8 +683,7 @@ static bool parse_short_arg(char *const argv[], int argc, seargs_parser_t *parse
       return false;
     }
 
-    const char *val =
-        option_next_value(argv, argc, p_i, def, def_index, opt_token, &parser->error);
+    const char *val = option_next_value(argv, argc, p_i, def, def_index, opt_token, &parser->error);
     if (!val)
       return false; // error already set by option_next_value
 
@@ -566,6 +712,10 @@ seargs_parser_t *seargs_parse_args(int argc, char *const argv[], const seargs_ar
   parser->error.arg = NULL;
   parser->error.detail = NULL;
 
+  if (argc == 1) {
+    print_help(parser->arg_defs, parser->n_arg_defs);
+  }
+
   // Wire states before validation so accessors never dereference a NULL def
   // pointer. A NULL arg_defs table (with n_arg_defs > 0) is caught by validation
   // below and leaves the states unwired.
@@ -581,26 +731,53 @@ seargs_parser_t *seargs_parse_args(int argc, char *const argv[], const seargs_ar
     return parser; // error is already set in this path.
 
   // Main parse loop
+  const bool has_positionals = parser_has_positionals(parser);
+  bool after_terminator = false;
+  size_t pos_cursor = 0; // next positional def to fill
+
   for (int i = 1; i < argc; i++) {
 
     const char *arg = argv[i];
 
-    // `--` ends option parsing; the rest is currently ignored (positional
-    // support is a planned future feature).
-    if (strcmp(arg, "--") == 0)
-      break;
-
-    // Not an option; currently ignored for the same reason as above.
-    if (arg[0] != '-')
+    // `--` ends option parsing; the tokens after it are positional.
+    if (!after_terminator && strcmp(arg, "--") == 0) {
+      after_terminator = true;
       continue;
+    }
+
+    // After `--` every token is positional, even option-shaped ones. With no
+    // positional arguments declared, they are ignored.
+    if (after_terminator) {
+      if (has_positionals && !parse_positional(parser, &pos_cursor, arg))
+        return parser; // error already set
+      continue;
+    }
+
+    // A lone '-' is not option-shaped: it fills a positional slot when one is
+    // open (the conventional "stdin" marker) and is an error otherwise.
+    if (strcmp(arg, "-") == 0) {
+      if (has_positionals) {
+        if (!parse_positional(parser, &pos_cursor, arg))
+          return parser; // error already set
+      } else {
+        seargs_report_err(&parser->error, SEARGS_UNKNOWN_ARG, SIZE_MAX, arg,
+                          "lone '-' is not a valid option");
+        return parser; // error already set
+      }
+      continue;
+    }
 
     if (is_long_arg(arg)) {
       if (!parse_long_arg(argv, argc, parser, &i))
         return parser; // error already set
-    } else {
+    } else if (arg[0] == '-') {
       if (!parse_short_arg(argv, argc, parser, &i))
         return parser; // error already set
+    } else if (has_positionals) {
+      if (!parse_positional(parser, &pos_cursor, arg))
+        return parser; // error already set
     }
+    // Without positional arguments, bare tokens are ignored.
   }
 
   for (size_t i = 0; i < n_arg_defs; i++) {
@@ -610,6 +787,30 @@ seargs_parser_t *seargs_parse_args(int argc, char *const argv[], const seargs_ar
   }
 
   return parser;
+}
+
+void print_help(const seargs_arg_def_t *defs, int n_args) {
+  if (!defs || n_args <= 0)
+    return;
+  int max_name_len = 0;
+  for (int i = 0; i < n_args; i++) {
+    int current_len = strlen(defs[i].name);
+    if (current_len > max_name_len) {
+      max_name_len = current_len;
+    }
+  }
+  int total_pad_width = max_name_len + 5;
+  printf("Usage:\n");
+  for (int i = 0; i < n_args; i++) {
+    char short_name_part[6];
+    if (defs[i].short_name) {
+      snprintf(short_name_part, sizeof(short_name_part), "(-%c)", defs[i].short_name);
+    } else {
+      snprintf(short_name_part, sizeof(short_name_part), "    ");
+    }
+    printf("  --%s %-*s  %s\n", defs[i].name, (int)(total_pad_width - strlen(defs[i].name)),
+           short_name_part, defs[i].desc);
+  }
 }
 
 const seargs_arg_state_t *seargs_get_state(const seargs_parser_t *p, const char *name) {

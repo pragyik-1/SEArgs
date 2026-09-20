@@ -38,6 +38,149 @@ static const seargs_arg_def_t req_defs[] = {
     {.name = "z", .type = SEARGS_TYPE_STRING, .is_required = true},
 };
 
+static const seargs_arg_def_t pos_defs[] = {
+    {.name = "output", .short_name = 'o', .type = SEARGS_TYPE_STRING},
+    {.name = "input", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_STRING},
+    {.name = "input2", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_STRING,
+     .default_val = {.str_val = "none"}},
+    {.name = "verbose", .short_name = 'v', .type = SEARGS_TYPE_BOOL},
+};
+
+static const seargs_arg_def_t pos_req_defs[] = {
+    {.name = "a", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_STRING},
+    {.name = "b", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_STRING,
+     .is_required = true},
+};
+
+static const seargs_arg_def_t pos_typed_defs[] = {
+    {.name = "num", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_INT},
+    {.name = "d", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_DOUBLE},
+    {.name = "b", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_BOOL},
+};
+
+// The macro frontend is pure sugar: every SEARGS_*_ARG macro expands to a def
+// that must behave identically to the hand-written initializer it stands for.
+static const seargs_arg_def_t macro_defs[] = {
+    SEARGS_OPTIONAL_BOOL_ARG("flag", 'f', NULL, false),
+    SEARGS_REQUIRED_BOOL_ARG("rb", 'r', NULL),
+    SEARGS_OPTIONAL_BOOL_ARG("bd", 'b', NULL, true),
+    SEARGS_OPTIONAL_STRING_ARG("str", 's', NULL, NULL),
+    SEARGS_REQUIRED_STRING_ARG("qstr", 'q', NULL),
+    SEARGS_OPTIONAL_STRING_ARG("dstr", 'd', NULL, "def"),
+    SEARGS_OPTIONAL_INT_ARG("num", 'n', NULL, 0),
+    SEARGS_REQUIRED_INT_ARG("rnum", 'm', NULL),
+    SEARGS_OPTIONAL_INT_ARG("dnum", 'i', NULL, 7),
+    SEARGS_OPTIONAL_DOUBLE_ARG("dbl", 'x', NULL, 0.0),
+    SEARGS_REQUIRED_DOUBLE_ARG("rdbl", 'y', NULL),
+    SEARGS_OPTIONAL_DOUBLE_ARG("ddbl", 'z', NULL, 2.5),
+    SEARGS_POSITIONAL_OPTIONAL_STRING_ARG("pstr", NULL, ""),
+    SEARGS_POSITIONAL_REQUIRED_STRING_ARG("prstr", NULL),
+    SEARGS_POSITIONAL_OPTIONAL_STRING_ARG("pdstr", NULL, "pd"),
+    SEARGS_POSITIONAL_OPTIONAL_INT_ARG("pnum", NULL, 0),
+    SEARGS_POSITIONAL_REQUIRED_INT_ARG("prnum", NULL),
+    SEARGS_POSITIONAL_OPTIONAL_INT_ARG("pdnum", NULL, 3),
+    SEARGS_POSITIONAL_OPTIONAL_DOUBLE_ARG("pdbl", NULL, 0.0),
+    SEARGS_POSITIONAL_REQUIRED_DOUBLE_ARG("prdbl", NULL),
+    SEARGS_POSITIONAL_OPTIONAL_DOUBLE_ARG("pddbl", NULL, 1.5),
+};
+
+static const seargs_arg_def_t raw_defs[] = {
+    {.name = "flag",
+     .short_name = 'f',
+     .type = SEARGS_TYPE_BOOL,
+     .default_val = {.bool_val = false}},
+    {.name = "rb", .short_name = 'r', .type = SEARGS_TYPE_BOOL, .is_required = true},
+    {.name = "bd", .short_name = 'b', .type = SEARGS_TYPE_BOOL, .default_val = {.bool_val = true}},
+    {.name = "str",
+     .short_name = 's',
+     .type = SEARGS_TYPE_STRING,
+     .default_val = {.str_val = NULL}},
+    {.name = "qstr", .short_name = 'q', .type = SEARGS_TYPE_STRING, .is_required = true},
+    {.name = "dstr",
+     .short_name = 'd',
+     .type = SEARGS_TYPE_STRING,
+     .default_val = {.str_val = "def"}},
+    {.name = "num", .short_name = 'n', .type = SEARGS_TYPE_INT, .default_val = {.int_val = 0}},
+    {.name = "rnum", .short_name = 'm', .type = SEARGS_TYPE_INT, .is_required = true},
+    {.name = "dnum", .short_name = 'i', .type = SEARGS_TYPE_INT, .default_val = {.int_val = 7}},
+    {.name = "dbl",
+     .short_name = 'x',
+     .type = SEARGS_TYPE_DOUBLE,
+     .default_val = {.double_val = 0.0}},
+    {.name = "rdbl", .short_name = 'y', .type = SEARGS_TYPE_DOUBLE, .is_required = true},
+    {.name = "ddbl",
+     .short_name = 'z',
+     .type = SEARGS_TYPE_DOUBLE,
+     .default_val = {.double_val = 2.5}},
+    {.name = "pstr",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_STRING,
+     .default_val = {.str_val = ""}},
+    {.name = "prstr",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_STRING,
+     .is_required = true},
+    {.name = "pdstr",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_STRING,
+     .default_val = {.str_val = "pd"}},
+    {.name = "pnum",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_INT,
+     .default_val = {.int_val = 0}},
+    {.name = "prnum",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_INT,
+     .is_required = true},
+    {.name = "pdnum",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_INT,
+     .default_val = {.int_val = 3}},
+    {.name = "pdbl",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_DOUBLE,
+     .default_val = {.double_val = 0.0}},
+    {.name = "prdbl",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_DOUBLE,
+     .is_required = true},
+    {.name = "pddbl",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_DOUBLE,
+     .default_val = {.double_val = 1.5}},
+};
+
+// A table of only optional positionals: the defaults must apply when no token
+// ever reaches them (a middle optional positional is otherwise always filled).
+static const seargs_arg_def_t pos_default_defs[] = {
+    SEARGS_POSITIONAL_OPTIONAL_STRING_ARG("ps", NULL, ""),
+    SEARGS_POSITIONAL_OPTIONAL_INT_ARG("pi", NULL, -1),
+    SEARGS_POSITIONAL_OPTIONAL_DOUBLE_ARG("pd", NULL, -1.5),
+};
+
+// True when both parsers report the same found-state and value for 'name'.
+static bool same_val(const seargs_parser_t *a, const seargs_parser_t *b, const char *name) {
+  const seargs_arg_state_t *sa = seargs_get_state(a, name);
+  const seargs_arg_state_t *sb = seargs_get_state(b, name);
+  if (!sa || !sb)
+    return false;
+  if (sa->is_found != sb->is_found)
+    return false;
+  switch (sa->def->type) {
+  case SEARGS_TYPE_BOOL:
+    return sa->val.bool_val == sb->val.bool_val;
+  case SEARGS_TYPE_INT:
+    return sa->val.int_val == sb->val.int_val;
+  case SEARGS_TYPE_DOUBLE:
+    return sa->val.double_val == sb->val.double_val;
+  case SEARGS_TYPE_STRING:
+    return (sa->val.str_val == sb->val.str_val) ||
+           (sa->val.str_val != NULL && sb->val.str_val != NULL &&
+            strcmp(sa->val.str_val, sb->val.str_val) == 0);
+  }
+  return false;
+}
+
 static void t_long_bool(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--flag");
   CHECK(p != NULL);
@@ -327,6 +470,258 @@ static void t_name_too_long(void) {
   seargs_free(p);
 }
 
+static void t_pos_fill_order(void) {
+  // Positionals fill in def order, with options interleaved freely.
+  seargs_parser_t *p = PARSE(pos_defs, "prog", "a.txt", "b.txt", "-v");
+  CHECK(p && p->error.code == SEARGS_OK);
+  CHECK(strcmp(seargs_get_string(p, "input"), "a.txt") == 0);
+  CHECK(strcmp(seargs_get_string(p, "input2"), "b.txt") == 0);
+  CHECK(seargs_is_found(p, "input"));
+  CHECK(seargs_is_found(p, "input2"));
+  CHECK(seargs_get_bool(p, "verbose") == true);
+  CHECK(seargs_is_found(p, "output") == false);
+  seargs_free(p);
+}
+
+static void t_pos_option_value_priority(void) {
+  // The value of --output is consumed as its value, never as a positional.
+  seargs_parser_t *p = PARSE(pos_defs, "prog", "--output", "out.txt", "a.txt");
+  CHECK(p && p->error.code == SEARGS_OK);
+  CHECK(strcmp(seargs_get_string(p, "output"), "out.txt") == 0);
+  CHECK(strcmp(seargs_get_string(p, "input"), "a.txt") == 0);
+  CHECK(strcmp(seargs_get_string(p, "input2"), "none") == 0); // default applied
+  CHECK(seargs_is_found(p, "input2") == false);
+  seargs_free(p);
+}
+
+static void t_pos_after_terminator(void) {
+  // After `--` option-shaped tokens become positional.
+  seargs_parser_t *p = PARSE(pos_defs, "prog", "--", "-x", "-v");
+  CHECK(p && p->error.code == SEARGS_OK);
+  CHECK(strcmp(seargs_get_string(p, "input"), "-x") == 0);
+  CHECK(strcmp(seargs_get_string(p, "input2"), "-v") == 0);
+  CHECK(seargs_get_bool(p, "verbose") == false);
+  seargs_free(p);
+}
+
+static void t_pos_lone_dash(void) {
+  seargs_parser_t *p = PARSE(pos_defs, "prog", "-");
+  CHECK(p && p->error.code == SEARGS_OK);
+  CHECK(strcmp(seargs_get_string(p, "input"), "-") == 0);
+  seargs_free(p);
+}
+
+static void t_pos_required_missing(void) {
+  // "a" is filled first, then the unfilled required "b" triggers MISSING_ARG.
+  seargs_parser_t *p = PARSE(pos_req_defs, "prog", "x");
+  CHECK(p != NULL);
+  CHECK(p->error.code == SEARGS_MISSING_ARG);
+  CHECK(p->error.index == 1); // def index of "b"
+  seargs_free(p);
+}
+
+static void t_pos_too_many(void) {
+  seargs_parser_t *p = PARSE(pos_defs, "prog", "a", "b", "c");
+  CHECK(p != NULL);
+  CHECK(p->error.code == SEARGS_TOO_MANY_ARGS);
+  CHECK(p->error.index == SIZE_MAX);
+  CHECK(p->error.arg != NULL && strcmp(p->error.arg, "c") == 0);
+  seargs_free(p);
+}
+
+static void t_pos_typed(void) {
+  // Negative positional values must be forced with `--`: a dash-shaped token is
+  // an option otherwise.
+  seargs_parser_t *p = PARSE(pos_typed_defs, "prog", "5", "--", "-1.5", "true");
+  CHECK(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_get_int(p, "num") == 5);
+  CHECK(seargs_get_double(p, "d") == -1.5);
+  CHECK(seargs_get_bool(p, "b") == true);
+  seargs_free(p);
+
+  p = PARSE(pos_typed_defs, "prog", "5", "-1.5", "true"); // "-1.5" is option-shaped
+  CHECK(p != NULL);
+  CHECK(p->error.code == SEARGS_UNKNOWN_ARG);
+  seargs_free(p);
+
+  p = PARSE(pos_typed_defs, "prog", "5", "x", "true");
+  CHECK(p != NULL);
+  CHECK(p->error.code == SEARGS_INVALID_VALUE);
+  CHECK(p->error.index == 1); // "d" failed to convert
+  seargs_free(p);
+}
+
+static void t_pos_name_not_option(void) {
+  // A positional's name is not usable as an option.
+  seargs_parser_t *p = PARSE(pos_defs, "prog", "--input", "x");
+  CHECK(p != NULL);
+  CHECK(p->error.code == SEARGS_UNKNOWN_ARG);
+  seargs_free(p);
+}
+
+static void t_no_pos_unaffected(void) {
+  // Without positional defs, bare tokens stay ignored and a lone '-' errors.
+  seargs_parser_t *p = PARSE(common_defs, "prog", "foo", "bar");
+  CHECK(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_is_found(p, "flag") == false);
+  seargs_free(p);
+}
+
+static void t_pos_value_too_long(void) {
+  char big[ARG_VAL_MAX_SIZE + 20];
+  memset(big, 'x', sizeof(big) - 1);
+  big[sizeof(big) - 1] = '\0';
+
+  seargs_parser_t *p = seargs_parse_args(2, (char *const[]){"prog", big}, pos_defs,
+                                         sizeof(pos_defs) / sizeof(pos_defs[0]));
+  CHECK(p != NULL);
+  CHECK(p->error.code == SEARGS_INVALID_VALUE);
+  CHECK(p->error.index == 1); // "input"
+  seargs_free(p);
+}
+
+static void t_pos_empty_value(void) {
+  seargs_parser_t *p = PARSE(pos_defs, "prog", "", "b");
+  CHECK(p && p->error.code == SEARGS_OK);
+  CHECK(strcmp(seargs_get_string(p, "input"), "") == 0);
+  CHECK(strcmp(seargs_get_string(p, "input2"), "b") == 0);
+  seargs_free(p);
+}
+
+static void t_macro_parity(void) {
+  // Fill every argument explicitly, including all nine positional slots.
+  char *const argv_full[] = {
+      "prog", "--flag", "-r",  "--bd=false", "--str", "hi",    "-q",  "qv", "--dstr=x", "--num",
+      "5",    "-m",     "2",   "--dnum",     "9",     "--dbl", "1.5", "-y", "3",        "--ddbl",
+      "4.5",  "one",    "two", "three",      "4",     "5",     "6",   "7",  "8",        "9"};
+  seargs_parser_t *pa =
+      seargs_parse_args((int)(sizeof(argv_full) / sizeof(argv_full[0])), argv_full, macro_defs,
+                        sizeof(macro_defs) / sizeof(macro_defs[0]));
+  seargs_parser_t *pb =
+      seargs_parse_args((int)(sizeof(argv_full) / sizeof(argv_full[0])), argv_full, raw_defs,
+                        sizeof(raw_defs) / sizeof(raw_defs[0]));
+  CHECK(pa != NULL && pa->error.code == SEARGS_OK);
+  CHECK(pb != NULL && pb->error.code == SEARGS_OK);
+#define SAME_VAL(n) CHECK(same_val(pa, pb, #n))
+  SAME_VAL(flag);
+  SAME_VAL(rb);
+  SAME_VAL(bd);
+  SAME_VAL(str);
+  SAME_VAL(qstr);
+  SAME_VAL(dstr);
+  SAME_VAL(num);
+  SAME_VAL(rnum);
+  SAME_VAL(dnum);
+  SAME_VAL(dbl);
+  SAME_VAL(rdbl);
+  SAME_VAL(ddbl);
+  SAME_VAL(pstr);
+  SAME_VAL(prstr);
+  SAME_VAL(pdstr);
+  SAME_VAL(pnum);
+  SAME_VAL(prnum);
+  SAME_VAL(pdnum);
+  SAME_VAL(pdbl);
+  SAME_VAL(prdbl);
+  SAME_VAL(pddbl);
+#undef SAME_VAL
+  seargs_free(pa);
+  seargs_free(pb);
+
+  // Same options minus the explicit defaults and the trailing positional: the
+  // absent optional arguments must fall back to their macro-declared defaults
+  // (bd=true, dstr="def", dnum=7, ddbl=2.5, pddbl=1.5) in both tables.
+  char *const argv_def[] = {"prog", "--flag", "-r",    "-q",  "qv", "--num", "5",
+                            "-m",   "2",      "--dbl", "1.5", "-y", "3",     "one",
+                            "two",  "three",  "4",     "5",   "6",  "7",     "8"};
+  pa = seargs_parse_args((int)(sizeof(argv_def) / sizeof(argv_def[0])), argv_def, macro_defs,
+                         sizeof(macro_defs) / sizeof(macro_defs[0]));
+  pb = seargs_parse_args((int)(sizeof(argv_def) / sizeof(argv_def[0])), argv_def, raw_defs,
+                         sizeof(raw_defs) / sizeof(raw_defs[0]));
+  CHECK(pa != NULL && pa->error.code == SEARGS_OK);
+  CHECK(pb != NULL && pb->error.code == SEARGS_OK);
+#define SAME_VAL(n) CHECK(same_val(pa, pb, #n))
+  SAME_VAL(flag);
+  SAME_VAL(rb);
+  SAME_VAL(bd);
+  SAME_VAL(str);
+  SAME_VAL(qstr);
+  SAME_VAL(dstr);
+  SAME_VAL(num);
+  SAME_VAL(rnum);
+  SAME_VAL(dnum);
+  SAME_VAL(dbl);
+  SAME_VAL(rdbl);
+  SAME_VAL(ddbl);
+  SAME_VAL(pstr);
+  SAME_VAL(prstr);
+  SAME_VAL(pdstr);
+  SAME_VAL(pnum);
+  SAME_VAL(prnum);
+  SAME_VAL(pdnum);
+  SAME_VAL(pdbl);
+  SAME_VAL(prdbl);
+  SAME_VAL(pddbl);
+#undef SAME_VAL
+  seargs_free(pa);
+  seargs_free(pb);
+
+  // Only the required arguments and the required positionals are given; every
+  // optional falls back to its macro-declared default in both tables.
+  char *const argv_abs[] = {"prog", "-r",  "-q",    "qv", "-m", "2", "-y", "3",
+                            "one",  "two", "three", "4",  "5",  "6", "7",  "8"};
+  pa = seargs_parse_args((int)(sizeof(argv_abs) / sizeof(argv_abs[0])), argv_abs, macro_defs,
+                         sizeof(macro_defs) / sizeof(macro_defs[0]));
+  pb = seargs_parse_args((int)(sizeof(argv_abs) / sizeof(argv_abs[0])), argv_abs, raw_defs,
+                         sizeof(raw_defs) / sizeof(raw_defs[0]));
+  CHECK(pa != NULL && pa->error.code == SEARGS_OK);
+  CHECK(pb != NULL && pb->error.code == SEARGS_OK);
+#define SAME_VAL(n) CHECK(same_val(pa, pb, #n))
+  SAME_VAL(flag);
+  SAME_VAL(rb);
+  SAME_VAL(bd);
+  SAME_VAL(str);
+  SAME_VAL(qstr);
+  SAME_VAL(dstr);
+  SAME_VAL(num);
+  SAME_VAL(rnum);
+  SAME_VAL(dnum);
+  SAME_VAL(dbl);
+  SAME_VAL(rdbl);
+  SAME_VAL(ddbl);
+  SAME_VAL(pstr);
+  SAME_VAL(prstr);
+  SAME_VAL(pdstr);
+  SAME_VAL(pnum);
+  SAME_VAL(prnum);
+  SAME_VAL(pdnum);
+  SAME_VAL(pdbl);
+  SAME_VAL(prdbl);
+  SAME_VAL(pddbl);
+#undef SAME_VAL
+  // The defaults themselves, as produced by the macro-built table.
+  CHECK(!seargs_is_found(pa, "flag") && seargs_get_bool(pa, "flag") == false);
+  CHECK(!seargs_is_found(pa, "bd") && seargs_get_bool(pa, "bd") == true);
+  CHECK(!seargs_is_found(pa, "str") && seargs_get_string(pa, "str") == NULL);
+  CHECK(!seargs_is_found(pa, "dstr") && strcmp(seargs_get_string(pa, "dstr"), "def") == 0);
+  CHECK(!seargs_is_found(pa, "num") && seargs_get_int(pa, "num") == 0);
+  CHECK(!seargs_is_found(pa, "dnum") && seargs_get_int(pa, "dnum") == 7);
+  CHECK(!seargs_is_found(pa, "dbl") && seargs_get_double(pa, "dbl") == 0.0);
+  CHECK(!seargs_is_found(pa, "ddbl") && seargs_get_double(pa, "ddbl") == 2.5);
+  CHECK(!seargs_is_found(pa, "pddbl") && seargs_get_double(pa, "pddbl") == 1.5);
+  seargs_free(pa);
+  seargs_free(pb);
+
+  // A table with only optional positionals and no tokens: the defaults apply.
+  pa = seargs_parse_args(1, (char *const[]){"prog"}, pos_default_defs,
+                         sizeof(pos_default_defs) / sizeof(pos_default_defs[0]));
+  CHECK(pa != NULL && pa->error.code == SEARGS_OK);
+  CHECK(!seargs_is_found(pa, "ps") && strcmp(seargs_get_string(pa, "ps"), "") == 0);
+  CHECK(!seargs_is_found(pa, "pi") && seargs_get_int(pa, "pi") == -1);
+  CHECK(!seargs_is_found(pa, "pd") && seargs_get_double(pa, "pd") == -1.5);
+  seargs_free(pa);
+}
+
 int main(void) {
   t_long_bool();
   t_bool_eq();
@@ -350,6 +745,18 @@ int main(void) {
   t_null_defs();
   t_free_null();
   t_name_too_long();
+  t_pos_fill_order();
+  t_pos_option_value_priority();
+  t_pos_after_terminator();
+  t_pos_lone_dash();
+  t_pos_required_missing();
+  t_pos_too_many();
+  t_pos_typed();
+  t_pos_name_not_option();
+  t_no_pos_unaffected();
+  t_pos_value_too_long();
+  t_pos_empty_value();
+  t_macro_parity();
 
   printf("%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;

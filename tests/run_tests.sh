@@ -37,4 +37,28 @@ else
   echo "== single-allocation guarantee: SKIPPED (requires glibc --wrap) =="
 fi
 
+echo "== usage example (examples/example.c) =="
+"$CC" $CFLAGS ../examples/example.c -o "$BIN/example"
+"$BIN/example" --text hello --count 2 --upper
+"$BIN/example" --text hi --count 1 -- -x >/dev/null
+if "$BIN/example" >/dev/null 2>&1; then
+  echo "example without required --text should have failed" >&2
+  exit 1
+fi
+
+echo "== usage example 2 (examples/wc.c) =="
+"$CC" $CFLAGS ../examples/wc.c -o "$BIN/wc"
+printf 'hello world\nsecond line\n' > "$BIN/in.txt"
+"$BIN/wc" -lw "$BIN/in.txt" | grep -q '^2 4 '
+"$BIN/wc" -c "$BIN/in.txt" | grep -q '^24 '
+"$BIN/wc" < "$BIN/in.txt" | grep -q '^2 4 24$'
+if "$BIN/wc" --nope >/dev/null 2>&1; then
+  echo "wc should reject an unknown option" >&2
+  exit 1
+fi
+if "$BIN/wc" /no/such/file >/dev/null 2>&1; then
+  echo "wc should fail on a missing file" >&2
+  exit 1
+fi
+
 echo "ALL TESTS PASSED"

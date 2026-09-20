@@ -1,6 +1,3 @@
-#!/usr/bin/env sh
-# Builds and runs the seargs verification suite from tests/.
-# CC and CFLAGS are overridable via the environment.
 set -e
 
 cd "$(dirname "$0")"

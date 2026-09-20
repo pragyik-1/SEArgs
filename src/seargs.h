@@ -11,13 +11,13 @@
 // ===== Public API =====
 
 #define SEARGS_NO_SHORT_NAME '\0'
+#ifndef ARG_NAME_MAX_SIZE
 #define ARG_NAME_MAX_SIZE 64
+#endif // ARG_NAME_MAX_SIZE
+#ifndef ARG_VAL_MAX_SIZE
 #define ARG_VAL_MAX_SIZE 256
+#endif // ARG_VAL_MAX_SIZE
 
-// Definition flags. SEARGS_FLAG_POSITIONAL marks an argument that is matched by
-// position on the command line rather than by name; it is never usable as an
-// option and may not declare a short name. The remaining flags are reserved for
-// future features and are accepted but have no effect yet.
 #define SEARGS_FLAG_POSITIONAL (1u << 0)
 #define SEARGS_FLAG_CASE_INSENSITIVE (1u << 1)
 #define SEARGS_FLAG_REPEATABLE (1u << 2)
@@ -69,14 +69,6 @@ typedef struct {
   seargs_arg_val_t default_val;
   uint32_t flags; // 0 or a combination of SEARGS_FLAG_*
 } seargs_arg_def_t;
-
-// Convenience initializers for seargs_arg_def_t; each expands to a braced
-// initializer usable where a def belongs, including inside a defs[] array.
-// Every optional carries an explicit default (absent never yields a silent
-// NULL / 0). REQUIRED_<T>_ARG(name, short, desc) is required; OPTIONAL_<T>_ARG
-// (name, short, desc, default) is optional with default. POSITIONAL_*_ARG
-// match by position, take no short name and are never usable as options. BOOL
-// has no positional form. desc may be NULL; pass SEARGS_NO_SHORT_NAME for none.
 
 #define SEARGS_REQUIRED_BOOL_ARG(name_, short_, desc_)                                             \
   {.name = (name_),                                                                                \
@@ -186,7 +178,7 @@ typedef struct {
   const seargs_arg_def_t *def; // back-pointer; non-NULL after a successful parse
   size_t def_index;            // index of def within arg_defs
   seargs_arg_val_t val;
-  bool is_found; // true when the argument was seen, even when set to false
+  bool is_found; // true when the argument was seen
 } seargs_arg_state_t;
 
 typedef struct {
@@ -211,8 +203,7 @@ typedef struct {
 seargs_parser_t *seargs_parse_args(int argc, char *const argv[], const seargs_arg_def_t *arg_defs,
                                    size_t n_arg_defs);
 
-// Frees the parser and everything it owns. Safe to call on any result of
-// seargs_parse_args, including NULL (no-op).
+// Frees the parser and everything it owns.
 void seargs_free(seargs_parser_t *parser);
 
 // State lookup. Returns NULL when name is not a defined argument.
@@ -272,8 +263,6 @@ static bool str_to_double(const char *str, double *out) {
     return false;
   if (*endptr != '\0')
     return false;
-  // Reject only overflow; underflow of a tiny-but-valid value (e.g. "1e-400")
-  // is accepted. "inf"/"nan" are accepted as well.
   if (errno == ERANGE && (result > DBL_MAX || result < -DBL_MAX))
     return false;
 
@@ -308,9 +297,6 @@ static bool str_to_bool(const char *s, bool *out) {
   return false;
 }
 
-// Single error funnel. Semantics: index is a **def index** (SIZE_MAX when not
-// applicable); arg is the **argv token** that caused the error (NULL when none).
-// The first error reported wins.
 static void seargs_report_err(seargs_error_info_t *err, seargs_error_t code, size_t def_index,
                               const char *argv_token, const char *detail) {
   if (!err || err->code != SEARGS_OK)
@@ -334,7 +320,7 @@ static inline bool is_valid_short_name(char c) {
 static inline bool is_long_arg(const char *arg) { return arg[0] == '-' && arg[1] == '-'; }
 
 // A token that looks like an option. A lone '-' is deliberately NOT an option
-// token; it is conventionally a positional ("stdin") marker.
+// token.
 static inline bool is_option_token(const char *t) { return t[0] == '-' && t[1] != '\0'; }
 
 static size_t seargs_find_def_index(const seargs_parser_t *p, const char *name) {
@@ -754,7 +740,7 @@ seargs_parser_t *seargs_parse_args(int argc, char *const argv[], const seargs_ar
     }
 
     // A lone '-' is not option-shaped: it fills a positional slot when one is
-    // open (the conventional "stdin" marker) and is an error otherwise.
+    // open and is an error otherwise.
     if (strcmp(arg, "-") == 0) {
       if (has_positionals) {
         if (!parse_positional(parser, &pos_cursor, arg))
@@ -809,7 +795,7 @@ void print_help(const seargs_arg_def_t *defs, int n_args) {
       snprintf(short_name_part, sizeof(short_name_part), "    ");
     }
     printf("  --%s %-*s  %s\n", defs[i].name, (int)(total_pad_width - strlen(defs[i].name)),
-           short_name_part, defs[i].desc);
+           short_name_part, defs[i].desc ? defs[i].desc : "");
   }
 }
 
@@ -857,6 +843,6 @@ const char *seargs_get_string(const seargs_parser_t *p, const char *name) {
   return state->is_found ? state->val.str_val : state->def->default_val.str_val;
 }
 
-void seargs_free(seargs_parser_t *parser) { free(parser); } // free(NULL) is a no-op
+void seargs_free(seargs_parser_t *parser) { free(parser); }
 
 #endif // SEARGS_IMPLEMENTATION

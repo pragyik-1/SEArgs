@@ -8,25 +8,48 @@
 static int checks = 0;
 static int failures = 0;
 
-#define CHECK(cond)                                                                              \
-  do {                                                                                           \
-    checks++;                                                                                    \
-    if (!(cond)) {                                                                               \
-      failures++;                                                                                \
-      fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);                            \
-    }                                                                                            \
+// The states array follows the parser inside one allocation; its offset must be
+// aligned for seargs_arg_state_t on every ABI.
+_Static_assert(offsetof(seargs_parse_block_t, states) % _Alignof(seargs_arg_state_t) == 0,
+               "seargs state array must be aligned");
+
+#define CHECK(cond)                                                                                \
+  do {                                                                                             \
+    checks++;                                                                                      \
+    if (!(cond)) {                                                                                 \
+      failures++;                                                                                  \
+      fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);                              \
+    }                                                                                              \
   } while (0)
 
-#define PARSE(defs_arr, ...)                                                                     \
-  (seargs_parse_args((int)(sizeof((char *[]){__VA_ARGS__}) / sizeof(char *)),                    \
-                     (char *const *)(char *[]){__VA_ARGS__}, (defs_arr),                         \
-                     sizeof(defs_arr) / sizeof((defs_arr)[0])))
+// Like CHECK, but stops the current test after a failed precondition. This
+// keeps static analyzers (and a real allocation failure) from seeing a
+// deliberate NULL dereference later in the function.
+#define REQUIRE(cond)                                                                              \
+  do {                                                                                             \
+    checks++;                                                                                      \
+    if (!(cond)) {                                                                                 \
+      failures++;                                                                                  \
+      fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);                              \
+      return;                                                                                      \
+    }                                                                                              \
+  } while (0)
+
+// Test harness parses with auto-help disabled so argc==1 cases exercise the
+// normal parser; t_help_requested covers the automatic help path explicitly.
+#define PARSE(defs_arr, ...)                                                                       \
+  (seargs_parse_args_ex((int)(sizeof((char *[]){__VA_ARGS__}) / sizeof(char *)),                   \
+                        (char *const *)(char *[]){__VA_ARGS__}, (defs_arr),                        \
+                        sizeof(defs_arr) / sizeof((defs_arr)[0]), false))
 
 static const seargs_arg_def_t common_defs[] = {
     {.name = "flag", .short_name = 'f', .type = SEARGS_TYPE_BOOL},
     {.name = "num", .short_name = 'n', .type = SEARGS_TYPE_INT},
     {.name = "dbl", .short_name = 'd', .type = SEARGS_TYPE_DOUBLE},
-    {.name = "str", .short_name = 's', .type = SEARGS_TYPE_STRING, .default_val = {.str_val = "defstr"}},
+    {.name = "str",
+     .short_name = 's',
+     .type = SEARGS_TYPE_STRING,
+     .default_val = {.str_val = "defstr"}},
     {.name = "opt", .type = SEARGS_TYPE_INT, .default_val = {.int_val = 42}},
     {.name = "a", .short_name = 'a', .type = SEARGS_TYPE_BOOL},
     {.name = "b", .short_name = 'b', .type = SEARGS_TYPE_BOOL},
@@ -41,15 +64,16 @@ static const seargs_arg_def_t req_defs[] = {
 static const seargs_arg_def_t pos_defs[] = {
     {.name = "output", .short_name = 'o', .type = SEARGS_TYPE_STRING},
     {.name = "input", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_STRING},
-    {.name = "input2", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_STRING,
+    {.name = "input2",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_STRING,
      .default_val = {.str_val = "none"}},
     {.name = "verbose", .short_name = 'v', .type = SEARGS_TYPE_BOOL},
 };
 
 static const seargs_arg_def_t pos_req_defs[] = {
     {.name = "a", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_STRING},
-    {.name = "b", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_STRING,
-     .is_required = true},
+    {.name = "b", .flags = SEARGS_FLAG_POSITIONAL, .type = SEARGS_TYPE_STRING, .is_required = true},
 };
 
 static const seargs_arg_def_t pos_typed_defs[] = {
@@ -183,7 +207,7 @@ static bool same_val(const seargs_parser_t *a, const seargs_parser_t *b, const c
 
 static void t_long_bool(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--flag");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_OK);
   CHECK(seargs_is_found(p, "flag"));
   CHECK(seargs_get_bool(p, "flag") == true);
@@ -193,20 +217,20 @@ static void t_long_bool(void) {
 
 static void t_bool_eq(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--flag=false");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_is_found(p, "flag"));
   CHECK(seargs_get_bool(p, "flag") == false);
 
   seargs_free(p);
   p = PARSE(common_defs, "prog", "--flag=1");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_get_bool(p, "flag") == true);
   seargs_free(p);
 }
 
 static void t_bool_absent_default(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_is_found(p, "flag") == false);
   CHECK(seargs_get_bool(p, "flag") == false);
   CHECK(seargs_get_int(p, "opt") == 42); // default
@@ -217,24 +241,24 @@ static void t_bool_absent_default(void) {
 
 static void t_int_values(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--num", "5");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_get_int(p, "num") == 5);
 
   seargs_free(p);
   p = PARSE(common_defs, "prog", "--num=-5");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_get_int(p, "num") == -5);
 
   seargs_free(p);
   p = PARSE(common_defs, "prog", "--num", "-5"); // dash-prefixed numeric value
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_get_int(p, "num") == -5);
   seargs_free(p);
 }
 
 static void t_int_dash_bad(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--num", "-x"); // not numeric
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   CHECK(p->error.index == 1); // def index of "num"
   CHECK(p->error.arg != NULL && strcmp(p->error.arg, "-x") == 0);
@@ -243,7 +267,7 @@ static void t_int_dash_bad(void) {
 
 static void t_int_terminator_value(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--num", "--"); // "--" is never a value
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_MISSING_VALUE);
   CHECK(p->error.index == 1);
   seargs_free(p);
@@ -251,31 +275,31 @@ static void t_int_terminator_value(void) {
 
 static void t_str_values(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--str", "abc");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(strcmp(seargs_get_string(p, "str"), "abc") == 0);
   seargs_free(p);
 
   // Dash-prefixed string values must use '='.
   p = PARSE(common_defs, "prog", "--str", "-x");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   seargs_free(p);
 
   p = PARSE(common_defs, "prog", "--str=-x");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(strcmp(seargs_get_string(p, "str"), "-x") == 0);
   seargs_free(p);
 
   // A lone "-" is not option-shaped, so it is acceptable as a value.
   p = PARSE(common_defs, "prog", "--str", "-");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(strcmp(seargs_get_string(p, "str"), "-") == 0);
   seargs_free(p);
 }
 
 static void t_short_cluster(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "-abn", "5");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_is_found(p, "a"));
   CHECK(seargs_is_found(p, "b"));
   CHECK(seargs_get_bool(p, "a") == true);
@@ -287,13 +311,13 @@ static void t_short_cluster(void) {
 static void t_short_cluster_bad(void) {
   // 'n' is value-taking and not last in the cluster -> error.
   seargs_parser_t *p = PARSE(common_defs, "prog", "-n5");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   seargs_free(p);
 
   // "-an 5" is valid: 'a' is a flag, 'n' is last and takes the value.
   p = PARSE(common_defs, "prog", "-an", "5");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_get_bool(p, "a") == true);
   CHECK(seargs_get_int(p, "num") == 5);
   seargs_free(p);
@@ -301,14 +325,14 @@ static void t_short_cluster_bad(void) {
 
 static void t_lone_dash(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "-");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_UNKNOWN_ARG);
   seargs_free(p);
 }
 
 static void t_unknown_long(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--nope");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_UNKNOWN_ARG);
   CHECK(p->error.index == SIZE_MAX);
   CHECK(p->error.arg != NULL && strcmp(p->error.arg, "--nope") == 0);
@@ -317,7 +341,7 @@ static void t_unknown_long(void) {
 
 static void t_required_missing(void) {
   seargs_parser_t *p = PARSE(req_defs, "prog");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_MISSING_ARG);
   CHECK(p->error.index == 2); // def index of the required "z"
   CHECK(p->error.arg == NULL);
@@ -326,12 +350,12 @@ static void t_required_missing(void) {
 
 static void t_missing_value(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--num");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_MISSING_VALUE);
   seargs_free(p);
 
   p = PARSE(common_defs, "prog", "-n");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_MISSING_VALUE);
   seargs_free(p);
 }
@@ -341,16 +365,15 @@ static void t_value_too_long(void) {
   memset(big, 'x', sizeof(big) - 1);
   big[sizeof(big) - 1] = '\0';
 
-  seargs_parser_t *p =
-      seargs_parse_args(4, (char *const[]){ "prog", "--num", big, NULL }, common_defs,
-                        sizeof(common_defs) / sizeof(common_defs[0]));
-  CHECK(p != NULL);
+  seargs_parser_t *p = seargs_parse_args(4, (char *const[]){"prog", "--num", big, NULL},
+                                         common_defs, sizeof(common_defs) / sizeof(common_defs[0]));
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   seargs_free(p);
 
-  p = seargs_parse_args(4, (char *const[]){ "prog", "-n", big, NULL }, common_defs,
+  p = seargs_parse_args(4, (char *const[]){"prog", "-n", big, NULL}, common_defs,
                         sizeof(common_defs) / sizeof(common_defs[0]));
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE); // both paths report, no stderr
   seargs_free(p);
 }
@@ -360,9 +383,9 @@ static void t_duplicates(void) {
       {.name = "same", .type = SEARGS_TYPE_INT},
       {.name = "same", .type = SEARGS_TYPE_STRING},
   };
-  seargs_parser_t *p = seargs_parse_args(1, (char *const[]){ "prog" }, dup_long,
+  seargs_parser_t *p = seargs_parse_args(1, (char *const[]){"prog"}, dup_long,
                                          sizeof(dup_long) / sizeof(dup_long[0]));
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_DEF_DUPLICATE_NAME);
   CHECK(p->error.index == 1);
   seargs_free(p);
@@ -371,9 +394,9 @@ static void t_duplicates(void) {
       {.name = "a1", .short_name = 'a', .type = SEARGS_TYPE_BOOL},
       {.name = "a2", .short_name = 'a', .type = SEARGS_TYPE_BOOL},
   };
-  p = seargs_parse_args(1, (char *const[]){ "prog" }, dup_short,
+  p = seargs_parse_args(1, (char *const[]){"prog"}, dup_short,
                         sizeof(dup_short) / sizeof(dup_short[0]));
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_DEF_DUPLICATE_SHORT_NAME);
   CHECK(p->error.index == 1);
   seargs_free(p);
@@ -381,40 +404,40 @@ static void t_duplicates(void) {
 
 static void t_empty_values(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--str=");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(strcmp(seargs_get_string(p, "str"), "") == 0);
   seargs_free(p);
 
   p = PARSE(common_defs, "prog", "--num=");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   seargs_free(p);
 
   p = PARSE(common_defs, "prog", "--flag=");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   seargs_free(p);
 }
 
 static void t_double_policies(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--dbl", "1e-400"); // underflow accepted
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   seargs_free(p);
 
   p = PARSE(common_defs, "prog", "--dbl", "1e400"); // overflow rejected
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   seargs_free(p);
 
   p = PARSE(common_defs, "prog", "--dbl", "-1.5e-3"); // dash-prefixed numeric
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_get_double(p, "dbl") == -1.5e-3);
   seargs_free(p);
 }
 
 static void t_terminator(void) {
   seargs_parser_t *p = PARSE(common_defs, "prog", "--", "-x", "foo", "--num");
-  CHECK(p && p->error.code == SEARGS_OK); // everything after "--" is ignored
+  REQUIRE(p && p->error.code == SEARGS_OK); // everything after "--" is ignored
   CHECK(seargs_is_found(p, "num") == false);
   seargs_free(p);
 }
@@ -423,31 +446,42 @@ static void t_invalid_flags(void) {
   const seargs_arg_def_t bad_flags[] = {
       {.name = "x", .type = SEARGS_TYPE_INT, .flags = 0x80000000u},
   };
-  seargs_parser_t *p = seargs_parse_args(1, (char *const[]){ "prog" }, bad_flags,
+  seargs_parser_t *p = seargs_parse_args(1, (char *const[]){"prog"}, bad_flags,
                                          sizeof(bad_flags) / sizeof(bad_flags[0]));
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_DEF_INVALID_FLAGS);
   seargs_free(p);
 
-  // Reserved-but-unused flags are accepted.
+  // Implemented optional flags are accepted.
   const seargs_arg_def_t ok_flags[] = {
       {.name = "x", .type = SEARGS_TYPE_INT, .flags = SEARGS_FLAG_POSITIONAL},
   };
-  p = seargs_parse_args(1, (char *const[]){ "prog" }, ok_flags,
-                        sizeof(ok_flags) / sizeof(ok_flags[0]));
-  CHECK(p && p->error.code == SEARGS_OK);
+  p = seargs_parse_args_ex(1, (char *const[]){"prog"}, ok_flags,
+                           sizeof(ok_flags) / sizeof(ok_flags[0]), false);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   seargs_free(p);
 }
 
 static void t_null_defs(void) {
-  seargs_parser_t *p = seargs_parse_args(1, (char *const[]){ "prog" }, NULL, 0);
-  CHECK(p && p->error.code == SEARGS_OK);
+  seargs_parser_t *p = seargs_parse_args_ex(1, (char *const[]){"prog"}, NULL, 0, false);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   seargs_free(p);
 
-  p = seargs_parse_args(1, (char *const[]){ "prog" }, NULL, 3);
-  CHECK(p != NULL);
+  p = seargs_parse_args_ex(1, (char *const[]){"prog"}, NULL, 3, false);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_DEF_TABLE_NULL);
+  // Lookups after a validation error must not dereference the NULL table.
+  CHECK(seargs_get_state(p, "anything") == NULL);
+  CHECK(seargs_is_found(p, "anything") == false);
   seargs_free(p);
+}
+
+static void t_alloc_overflow(void) {
+  // The guard must reject counts that cannot fit in one allocation before
+  // touching the (NULL) table or attempting an impossible allocation.
+  seargs_parser_t *p = seargs_parse_args_ex(1, (char *const[]){"prog"}, NULL, SIZE_MAX, false);
+  CHECK(p == NULL);
+  CHECK(seargs_help_requested(NULL) == false);
 }
 
 static void t_free_null(void) {
@@ -462,18 +496,228 @@ static void t_name_too_long(void) {
   name[1] = '-';
   name[sizeof(name) - 1] = '\0';
 
-  seargs_parser_t *p = seargs_parse_args(2, (char *const[]){ "prog", name }, common_defs,
+  seargs_parser_t *p = seargs_parse_args(2, (char *const[]){"prog", name}, common_defs,
                                          sizeof(common_defs) / sizeof(common_defs[0]));
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   CHECK(p->error.index == SIZE_MAX);
   seargs_free(p);
 }
 
+static void t_def_name_null(void) {
+  const seargs_arg_def_t bad[] = {
+      {.name = "ok", .type = SEARGS_TYPE_BOOL},
+      {.name = NULL, .type = SEARGS_TYPE_BOOL},
+  };
+  // argc == 1 used to reach the help formatter before validation and crash.
+  seargs_parser_t *p =
+      seargs_parse_args(1, (char *const[]){"prog"}, bad, sizeof(bad) / sizeof(bad[0]));
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_DEF_NAME_NULL);
+  CHECK(p->error.index == 1);
+  // The valid state is still wired and lookups stay safe after the error.
+  CHECK(seargs_get_state(p, "ok") != NULL);
+  CHECK(seargs_get_state(p, "zzz") == NULL);
+  seargs_free(p);
+}
+
+static void t_def_name_too_long(void) {
+  char name[ARG_NAME_MAX_SIZE + 10];
+  memset(name, 'a', sizeof(name) - 1);
+  name[sizeof(name) - 1] = '\0';
+
+  const seargs_arg_def_t bad[] = {
+      {.name = name, .type = SEARGS_TYPE_BOOL},
+  };
+  seargs_parser_t *p = PARSE(bad, "prog");
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_DEF_NAME_TOO_LONG);
+  CHECK(p->error.index == 0);
+  seargs_free(p);
+}
+
+static void t_def_default_too_long(void) {
+  char dflt[ARG_VAL_MAX_SIZE + 10];
+  memset(dflt, 'x', sizeof(dflt) - 1);
+  dflt[sizeof(dflt) - 1] = '\0';
+
+  const seargs_arg_def_t bad[] = {
+      {.name = "s", .type = SEARGS_TYPE_STRING, .default_val = {.str_val = dflt}},
+  };
+  seargs_parser_t *p = PARSE(bad, "prog");
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_DEF_DEFAULT_TOO_LONG);
+  CHECK(p->error.index == 0);
+  seargs_free(p);
+}
+
+static const seargs_arg_def_t bool_space_defs[] = {
+    {.name = "flag", .short_name = 'f', .type = SEARGS_TYPE_BOOL},
+    {.name = "pos",
+     .flags = SEARGS_FLAG_POSITIONAL,
+     .type = SEARGS_TYPE_STRING,
+     .default_val = {.str_val = "none"}},
+};
+
+static void t_bool_space_value(void) {
+  seargs_parser_t *p = PARSE(bool_space_defs, "prog", "--flag", "false");
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_is_found(p, "flag"));
+  CHECK(seargs_get_bool(p, "flag") == false);
+  CHECK(seargs_is_found(p, "pos") == false);
+  seargs_free(p);
+
+  p = PARSE(bool_space_defs, "prog", "-f", "0");
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_get_bool(p, "flag") == false);
+  CHECK(seargs_is_found(p, "pos") == false);
+  seargs_free(p);
+
+  // An arbitrary token is not consumed as a boolean value; it stays positional.
+  p = PARSE(bool_space_defs, "prog", "--flag", "maybe");
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_get_bool(p, "flag") == true);
+  CHECK(strcmp(seargs_get_string(p, "pos"), "maybe") == 0);
+  seargs_free(p);
+
+  p = PARSE(bool_space_defs, "prog", "--flag", "0", "--", "false");
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_get_bool(p, "flag") == false);
+  CHECK(strcmp(seargs_get_string(p, "pos"), "false") == 0);
+  seargs_free(p);
+}
+
+static void t_case_insensitive(void) {
+  const seargs_arg_def_t ci_defs[] = {
+      {.name = "verbose",
+       .short_name = 'v',
+       .type = SEARGS_TYPE_BOOL,
+       .flags = SEARGS_FLAG_CASE_INSENSITIVE},
+  };
+  seargs_parser_t *p = PARSE(ci_defs, "prog", "--VERBOSE");
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_is_found(p, "verbose"));
+  CHECK(seargs_get_bool(p, "verbose") == true);
+  seargs_free(p);
+
+  p = PARSE(ci_defs, "prog", "--Verbose=false");
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_get_bool(p, "verbose") == false);
+  seargs_free(p);
+
+  p = PARSE(ci_defs, "prog", "--other");
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_UNKNOWN_ARG);
+  seargs_free(p);
+
+  // A case-insensitive name claims all spellings, so it conflicts with a
+  // case-different definition.
+  const seargs_arg_def_t conflict[] = {
+      {.name = "Foo", .type = SEARGS_TYPE_BOOL, .flags = SEARGS_FLAG_CASE_INSENSITIVE},
+      {.name = "foo", .type = SEARGS_TYPE_BOOL},
+  };
+  p = PARSE(conflict, "prog");
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_DEF_DUPLICATE_NAME);
+  CHECK(p->error.index == 1);
+  seargs_free(p);
+}
+
+static const seargs_arg_def_t repeat_defs[] = {
+    {.name = "num", .short_name = 'n', .type = SEARGS_TYPE_INT},
+    {.name = "rep", .short_name = 'r', .type = SEARGS_TYPE_INT, .flags = SEARGS_FLAG_REPEATABLE},
+    {.name = "flag", .short_name = 'f', .type = SEARGS_TYPE_BOOL},
+};
+
+static void t_duplicate_arg(void) {
+  seargs_parser_t *p = PARSE(repeat_defs, "prog", "--num", "1", "--num", "2");
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_DUPLICATE_ARG);
+  CHECK(p->error.index == 0);
+  seargs_free(p);
+
+  p = PARSE(repeat_defs, "prog", "-n", "1", "-n", "2");
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_DUPLICATE_ARG);
+  seargs_free(p);
+
+  p = PARSE(repeat_defs, "prog", "--rep", "1", "-r", "2");
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_get_int(p, "rep") == 2);
+  seargs_free(p);
+
+  // Repeating a presence-only flag stays harmless.
+  p = PARSE(repeat_defs, "prog", "-ff");
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_get_bool(p, "flag") == true);
+  seargs_free(p);
+}
+
+static void t_numeric_whitespace(void) {
+  seargs_parser_t *p = PARSE(common_defs, "prog", "--num", " 5");
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_INVALID_VALUE);
+  CHECK(p->error.index == 1);
+  seargs_free(p);
+
+  p = PARSE(common_defs, "prog", "--num", "5 ");
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_INVALID_VALUE);
+  seargs_free(p);
+
+  p = PARSE(common_defs, "prog", "--dbl", "\t2.5");
+  REQUIRE(p != NULL);
+  CHECK(p->error.code == SEARGS_INVALID_VALUE);
+  seargs_free(p);
+}
+
+static void t_help_requested(void) {
+  const size_t n_common = sizeof(common_defs) / sizeof(common_defs[0]);
+  seargs_parser_t *p = seargs_parse_args(1, (char *const[]){"prog"}, common_defs, n_common);
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_help_requested(p));
+  CHECK(seargs_is_found(p, "flag") == false);
+  seargs_free(p);
+
+  // Required definitions are not reported missing in automatic-help mode.
+  p = seargs_parse_args(1, (char *const[]){"prog"}, req_defs,
+                        sizeof(req_defs) / sizeof(req_defs[0]));
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_help_requested(p));
+  seargs_free(p);
+
+  p = seargs_parse_args_ex(1, (char *const[]){"prog"}, common_defs, n_common, false);
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  CHECK(seargs_help_requested(p) == false);
+  seargs_free(p);
+
+  p = PARSE(common_defs, "prog", "--flag");
+  REQUIRE(p && seargs_help_requested(p) == false);
+  seargs_free(p);
+}
+
+static void t_accessor_mismatch(void) {
+#ifdef NDEBUG
+  seargs_parser_t *p = PARSE(common_defs, "prog", "--num", "5", "--str", "hi", "--flag");
+  REQUIRE(p && p->error.code == SEARGS_OK);
+  // Type mismatches and unknown names must not reinterpret value bits as a
+  // pointer (or an integer as a _Bool) in release builds.
+  CHECK(seargs_get_string(p, "num") == NULL);
+  CHECK(seargs_get_int(p, "str") == 0);
+  CHECK(seargs_get_bool(p, "num") == false);
+  CHECK(seargs_get_double(p, "str") == 0.0);
+  CHECK(seargs_get_string(p, "missing") == NULL);
+  CHECK(seargs_get_int(p, "missing") == 0);
+  seargs_free(p);
+#else
+  CHECK(1); // debug builds intentionally assert on accessor misuse
+#endif
+}
+
 static void t_pos_fill_order(void) {
   // Positionals fill in def order, with options interleaved freely.
   seargs_parser_t *p = PARSE(pos_defs, "prog", "a.txt", "b.txt", "-v");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(strcmp(seargs_get_string(p, "input"), "a.txt") == 0);
   CHECK(strcmp(seargs_get_string(p, "input2"), "b.txt") == 0);
   CHECK(seargs_is_found(p, "input"));
@@ -486,7 +730,7 @@ static void t_pos_fill_order(void) {
 static void t_pos_option_value_priority(void) {
   // The value of --output is consumed as its value, never as a positional.
   seargs_parser_t *p = PARSE(pos_defs, "prog", "--output", "out.txt", "a.txt");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(strcmp(seargs_get_string(p, "output"), "out.txt") == 0);
   CHECK(strcmp(seargs_get_string(p, "input"), "a.txt") == 0);
   CHECK(strcmp(seargs_get_string(p, "input2"), "none") == 0); // default applied
@@ -497,7 +741,7 @@ static void t_pos_option_value_priority(void) {
 static void t_pos_after_terminator(void) {
   // After `--` option-shaped tokens become positional.
   seargs_parser_t *p = PARSE(pos_defs, "prog", "--", "-x", "-v");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(strcmp(seargs_get_string(p, "input"), "-x") == 0);
   CHECK(strcmp(seargs_get_string(p, "input2"), "-v") == 0);
   CHECK(seargs_get_bool(p, "verbose") == false);
@@ -506,7 +750,7 @@ static void t_pos_after_terminator(void) {
 
 static void t_pos_lone_dash(void) {
   seargs_parser_t *p = PARSE(pos_defs, "prog", "-");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(strcmp(seargs_get_string(p, "input"), "-") == 0);
   seargs_free(p);
 }
@@ -514,7 +758,7 @@ static void t_pos_lone_dash(void) {
 static void t_pos_required_missing(void) {
   // "a" is filled first, then the unfilled required "b" triggers MISSING_ARG.
   seargs_parser_t *p = PARSE(pos_req_defs, "prog", "x");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_MISSING_ARG);
   CHECK(p->error.index == 1); // def index of "b"
   seargs_free(p);
@@ -522,7 +766,7 @@ static void t_pos_required_missing(void) {
 
 static void t_pos_too_many(void) {
   seargs_parser_t *p = PARSE(pos_defs, "prog", "a", "b", "c");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_TOO_MANY_ARGS);
   CHECK(p->error.index == SIZE_MAX);
   CHECK(p->error.arg != NULL && strcmp(p->error.arg, "c") == 0);
@@ -533,19 +777,19 @@ static void t_pos_typed(void) {
   // Negative positional values must be forced with `--`: a dash-shaped token is
   // an option otherwise.
   seargs_parser_t *p = PARSE(pos_typed_defs, "prog", "5", "--", "-1.5", "true");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_get_int(p, "num") == 5);
   CHECK(seargs_get_double(p, "d") == -1.5);
   CHECK(seargs_get_bool(p, "b") == true);
   seargs_free(p);
 
   p = PARSE(pos_typed_defs, "prog", "5", "-1.5", "true"); // "-1.5" is option-shaped
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_UNKNOWN_ARG);
   seargs_free(p);
 
   p = PARSE(pos_typed_defs, "prog", "5", "x", "true");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   CHECK(p->error.index == 1); // "d" failed to convert
   seargs_free(p);
@@ -554,7 +798,7 @@ static void t_pos_typed(void) {
 static void t_pos_name_not_option(void) {
   // A positional's name is not usable as an option.
   seargs_parser_t *p = PARSE(pos_defs, "prog", "--input", "x");
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_UNKNOWN_ARG);
   seargs_free(p);
 }
@@ -562,7 +806,7 @@ static void t_pos_name_not_option(void) {
 static void t_no_pos_unaffected(void) {
   // Without positional defs, bare tokens stay ignored and a lone '-' errors.
   seargs_parser_t *p = PARSE(common_defs, "prog", "foo", "bar");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(seargs_is_found(p, "flag") == false);
   seargs_free(p);
 }
@@ -574,7 +818,7 @@ static void t_pos_value_too_long(void) {
 
   seargs_parser_t *p = seargs_parse_args(2, (char *const[]){"prog", big}, pos_defs,
                                          sizeof(pos_defs) / sizeof(pos_defs[0]));
-  CHECK(p != NULL);
+  REQUIRE(p != NULL);
   CHECK(p->error.code == SEARGS_INVALID_VALUE);
   CHECK(p->error.index == 1); // "input"
   seargs_free(p);
@@ -582,7 +826,7 @@ static void t_pos_value_too_long(void) {
 
 static void t_pos_empty_value(void) {
   seargs_parser_t *p = PARSE(pos_defs, "prog", "", "b");
-  CHECK(p && p->error.code == SEARGS_OK);
+  REQUIRE(p && p->error.code == SEARGS_OK);
   CHECK(strcmp(seargs_get_string(p, "input"), "") == 0);
   CHECK(strcmp(seargs_get_string(p, "input2"), "b") == 0);
   seargs_free(p);
@@ -600,8 +844,8 @@ static void t_macro_parity(void) {
   seargs_parser_t *pb =
       seargs_parse_args((int)(sizeof(argv_full) / sizeof(argv_full[0])), argv_full, raw_defs,
                         sizeof(raw_defs) / sizeof(raw_defs[0]));
-  CHECK(pa != NULL && pa->error.code == SEARGS_OK);
-  CHECK(pb != NULL && pb->error.code == SEARGS_OK);
+  REQUIRE(pa != NULL && pa->error.code == SEARGS_OK);
+  REQUIRE(pb != NULL && pb->error.code == SEARGS_OK);
 #define SAME_VAL(n) CHECK(same_val(pa, pb, #n))
   SAME_VAL(flag);
   SAME_VAL(rb);
@@ -638,8 +882,8 @@ static void t_macro_parity(void) {
                          sizeof(macro_defs) / sizeof(macro_defs[0]));
   pb = seargs_parse_args((int)(sizeof(argv_def) / sizeof(argv_def[0])), argv_def, raw_defs,
                          sizeof(raw_defs) / sizeof(raw_defs[0]));
-  CHECK(pa != NULL && pa->error.code == SEARGS_OK);
-  CHECK(pb != NULL && pb->error.code == SEARGS_OK);
+  REQUIRE(pa != NULL && pa->error.code == SEARGS_OK);
+  REQUIRE(pb != NULL && pb->error.code == SEARGS_OK);
 #define SAME_VAL(n) CHECK(same_val(pa, pb, #n))
   SAME_VAL(flag);
   SAME_VAL(rb);
@@ -674,8 +918,8 @@ static void t_macro_parity(void) {
                          sizeof(macro_defs) / sizeof(macro_defs[0]));
   pb = seargs_parse_args((int)(sizeof(argv_abs) / sizeof(argv_abs[0])), argv_abs, raw_defs,
                          sizeof(raw_defs) / sizeof(raw_defs[0]));
-  CHECK(pa != NULL && pa->error.code == SEARGS_OK);
-  CHECK(pb != NULL && pb->error.code == SEARGS_OK);
+  REQUIRE(pa != NULL && pa->error.code == SEARGS_OK);
+  REQUIRE(pb != NULL && pb->error.code == SEARGS_OK);
 #define SAME_VAL(n) CHECK(same_val(pa, pb, #n))
   SAME_VAL(flag);
   SAME_VAL(rb);
@@ -713,9 +957,9 @@ static void t_macro_parity(void) {
   seargs_free(pb);
 
   // A table with only optional positionals and no tokens: the defaults apply.
-  pa = seargs_parse_args(1, (char *const[]){"prog"}, pos_default_defs,
-                         sizeof(pos_default_defs) / sizeof(pos_default_defs[0]));
-  CHECK(pa != NULL && pa->error.code == SEARGS_OK);
+  pa = seargs_parse_args_ex(1, (char *const[]){"prog"}, pos_default_defs,
+                            sizeof(pos_default_defs) / sizeof(pos_default_defs[0]), false);
+  REQUIRE(pa != NULL && pa->error.code == SEARGS_OK);
   CHECK(!seargs_is_found(pa, "ps") && strcmp(seargs_get_string(pa, "ps"), "") == 0);
   CHECK(!seargs_is_found(pa, "pi") && seargs_get_int(pa, "pi") == -1);
   CHECK(!seargs_is_found(pa, "pd") && seargs_get_double(pa, "pd") == -1.5);
@@ -743,8 +987,18 @@ int main(void) {
   t_terminator();
   t_invalid_flags();
   t_null_defs();
+  t_alloc_overflow();
   t_free_null();
   t_name_too_long();
+  t_def_name_null();
+  t_def_name_too_long();
+  t_def_default_too_long();
+  t_bool_space_value();
+  t_case_insensitive();
+  t_duplicate_arg();
+  t_numeric_whitespace();
+  t_help_requested();
+  t_accessor_mismatch();
   t_pos_fill_order();
   t_pos_option_value_priority();
   t_pos_after_terminator();

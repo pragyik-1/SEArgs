@@ -17,14 +17,19 @@ void *__real_realloc(void *, size_t);
 void __real_free(void *);
 
 void *__wrap_malloc(size_t n) {
+  void *p = __real_malloc(n);
+  if (!p)
+    return NULL;
   live_allocations++;
   if (live_allocations > peak_allocations)
     peak_allocations = live_allocations;
-  return __real_malloc(n);
+  return p;
 }
 
 void *__wrap_calloc(size_t n, size_t s) {
   void *p = __real_calloc(n, s);
+  if (!p)
+    return NULL;
   live_allocations++;
   if (live_allocations > peak_allocations)
     peak_allocations = live_allocations;
@@ -49,7 +54,7 @@ int main(void) {
   seargs_parser_t *p;
   int live_at_parse, peak_at_parse;
 
-  p = seargs_parse_args(5, (char *const[]){ "prog", "--str", str_value, "--num", "7" }, defs,
+  p = seargs_parse_args(5, (char *const[]){"prog", "--str", str_value, "--num", "7"}, defs,
                         sizeof(defs) / sizeof(defs[0]));
   live_at_parse = live_allocations;
   peak_at_parse = peak_allocations;

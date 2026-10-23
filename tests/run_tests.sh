@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -e
 
 cd "$(dirname "$0")"
@@ -11,6 +12,14 @@ trap 'rm -rf "$BIN"' EXIT
 echo "== behavior matrix ($CC) =="
 "$CC" $CFLAGS -O0 -g test.c -o "$BIN/matrix"
 "$BIN/matrix"
+
+echo "== help formatting =="
+"$CC" $CFLAGS help_test.c -o "$BIN/help"
+"$BIN/help"
+
+echo "== implementation included twice in one TU =="
+"$CC" $CFLAGS double_include.c -o "$BIN/double_include"
+"$BIN/double_include"
 
 echo "== behavior matrix, NDEBUG release build =="
 "$CC" $CFLAGS -O2 -DNDEBUG test.c -o "$BIN/matrix_ndbg"
@@ -38,7 +47,8 @@ echo "== usage example (examples/example.c) =="
 "$CC" $CFLAGS ../examples/example.c -o "$BIN/example"
 "$BIN/example" --text hello --count 2 --upper
 "$BIN/example" --text hi --count 1 -- -x >/dev/null
-if "$BIN/example" >/dev/null 2>&1; then
+"$BIN/example" | grep -q '^Usage:'          # no args: help, success
+if "$BIN/example" --count 2 >/dev/null 2>&1; then
   echo "example without required --text should have failed" >&2
   exit 1
 fi

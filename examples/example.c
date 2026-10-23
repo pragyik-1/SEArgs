@@ -23,6 +23,13 @@ int main(int argc, char *const argv[]) {
     return EXIT_FAILURE;
   }
 
+  // argc == 1 printed the usage listing; exit successfully without trying to
+  // evaluate required arguments.
+  if (seargs_help_requested(p)) {
+    seargs_free(p);
+    return EXIT_SUCCESS;
+  }
+
   // Any definition or command-line problem lands here. index is the def index
   // that caused it (SIZE_MAX when not applicable), arg is the argv token
   // involved (NULL when none), and detail is a short human-readable reason.

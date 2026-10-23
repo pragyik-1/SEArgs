@@ -1,6 +1,8 @@
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define SEARGS_IMPLEMENTATION
 #include "../src/seargs.h"
@@ -13,9 +15,9 @@ static const seargs_arg_def_t defs[] = {
 };
 
 typedef struct {
-  long lines;
-  long words;
-  long bytes;
+  uintmax_t lines;
+  uintmax_t words;
+  uintmax_t bytes;
 } counts_t;
 
 static counts_t count_stream(FILE *f) {
@@ -37,7 +39,10 @@ static counts_t count_stream(FILE *f) {
 }
 
 int main(int argc, char *const argv[]) {
-  seargs_parser_t *p = seargs_parse_args(argc, argv, defs, sizeof(defs) / sizeof(defs[0]));
+  // Real wc reads stdin when given no arguments, so opt out of the automatic
+  // argc == 1 help listing.
+  seargs_parser_t *p =
+      seargs_parse_args_ex(argc, argv, defs, sizeof(defs) / sizeof(defs[0]), false);
   if (!p) {
     fprintf(stderr, "wc: out of memory\n");
     return EXIT_FAILURE;
@@ -61,7 +66,7 @@ int main(int argc, char *const argv[]) {
     show_lines = show_words = show_bytes = true;
 
   FILE *fp = stdin;
-  if (fname) {
+  if (fname && strcmp(fname, "-") != 0) {
     fp = fopen(fname, "rb");
     if (!fp) {
       fprintf(stderr, "wc: cannot open '%s'\n", fname);
@@ -70,22 +75,32 @@ int main(int argc, char *const argv[]) {
     }
   }
 
-  counts_t c = count_stream(fp);
-  if (fp != stdin)
-    fclose(fp);
+  const counts_t c = count_stream(fp);
+  if (ferror(fp)) {
+    fprintf(stderr, "wc: read error on '%s'\n", fname ? fname : "stdin");
+    if (fp != stdin)
+      fclose(fp);
+    seargs_free(p);
+    return EXIT_FAILURE;
+  }
+  if (fp != stdin && fclose(fp) != 0) {
+    fprintf(stderr, "wc: error closing '%s'\n", fname);
+    seargs_free(p);
+    return EXIT_FAILURE;
+  }
   seargs_free(p);
 
   int printed = 0;
   if (show_lines) {
-    printf("%ld", c.lines);
+    printf("%" PRIuMAX, c.lines);
     printed++;
   }
   if (show_words) {
-    printf("%s%ld", printed ? " " : "", c.words);
+    printf("%s%" PRIuMAX, printed ? " " : "", c.words);
     printed++;
   }
   if (show_bytes) {
-    printf("%s%ld", printed ? " " : "", c.bytes);
+    printf("%s%" PRIuMAX, printed ? " " : "", c.bytes);
     printed++;
   }
   if (fname)

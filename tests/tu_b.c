@@ -9,7 +9,7 @@ int run_b(void) {
       {.name = "str", .type = SEARGS_TYPE_STRING},
       {.name = "dflt", .type = SEARGS_TYPE_STRING, .default_val = {.str_val = "none"}},
   };
-  seargs_parser_t *p = seargs_parse_args(3, (char *const[]){ "prog", "--str", "hi" }, defs,
+  seargs_parser_t *p = seargs_parse_args(3, (char *const[]){"prog", "--str", "hi"}, defs,
                                          sizeof(defs) / sizeof(defs[0]));
   if (!p || p->error.code != SEARGS_OK)
     return 3;
